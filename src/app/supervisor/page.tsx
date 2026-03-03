@@ -851,7 +851,7 @@ export default function SupervisorDashboardPage() {
                       ) : tourMode === "B2" ? (
                         <>
                           <div className="space-y-2">
-                            <label className="text-sm font-medium">maxMetersPerTour *</label>
+                            <label className="text-sm font-medium">Par taille *</label>
                             <input
                               className={inputClassName}
                               type="number"
