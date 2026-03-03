@@ -222,6 +222,7 @@ export default function SupervisorDashboardPage() {
   const [manualCountsByAgent, setManualCountsByAgent] = useState<Record<string, number>>({});
   const [manualAgentId, setManualAgentId] = useState<string>("");
   const [manualCount, setManualCount] = useState<number>(5);
+  const [zoneOptions, setZoneOptions] = useState<ZoneRef[]>([]);
 
   const [tours, setTours] = useState<TourRow[]>([]);
   const [toursListBusy, setToursListBusy] = useState(false);
@@ -297,7 +298,13 @@ export default function SupervisorDashboardPage() {
 
     void loadReadings();
 
-    const zones = res.data.assignedZones ?? [];
+    const zonesRes = await apiFetch<ZoneRef[]>("/supervisor/zones", { method: "GET" });
+    const zones = zonesRes.ok ? zonesRes.data : (res.data.assignedZones ?? []);
+    if (!zonesRes.ok) {
+      setMessage({ type: "error", text: zonesRes.error });
+    }
+    setZoneOptions(zones);
+
     if (zones.length > 0 && !form.zoneKey) {
       setForm((s) => ({ ...s, zoneKey: `${zones[0].center}|||${zones[0].zone}|||${zones[0].sector}` }));
     }
@@ -512,7 +519,7 @@ export default function SupervisorDashboardPage() {
     }
   }
 
-  const assignedZones = me?.assignedZones ?? [];
+  const assignedZones = zoneOptions;
 
   const navItem = (key: TabKey, label: string, sub?: string) => {
     const active = tab === key;
