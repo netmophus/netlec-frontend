@@ -299,7 +299,7 @@ export default function SupervisorDashboardPage() {
     void loadReadings();
 
     const zonesRes = await apiFetch<ZoneRef[]>("/supervisor/zones", { method: "GET" });
-    const zones = zonesRes.ok ? zonesRes.data : (res.data.assignedZones ?? []);
+    const zones = zonesRes.ok ? zonesRes.data : [];
     if (!zonesRes.ok) {
       setMessage({ type: "error", text: zonesRes.error });
     }
