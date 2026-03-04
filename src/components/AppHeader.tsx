@@ -8,6 +8,10 @@ type Session =
   | { isAuthenticated: false }
   | { isAuthenticated: true; role: Role | null };
 
+type PortalSettings = {
+  logoUrl: string;
+};
+
 function decodeJwtPayload(token: string): Record<string, unknown> | null {
   const parts = token.split(".");
   if (parts.length !== 3) return null;
@@ -33,9 +37,21 @@ function readSessionFromStorage(): Session {
 
 export function AppHeader() {
   const [session, setSession] = useState<Session>({ isAuthenticated: false });
+  const [logoUrl, setLogoUrl] = useState("/nigelec-logo.svg");
 
   useEffect(() => {
     setSession(readSessionFromStorage());
+
+    try {
+      const raw = localStorage.getItem("nigelec_portal_settings");
+      if (!raw) return;
+      const parsed = JSON.parse(raw) as Partial<PortalSettings>;
+      if (parsed.logoUrl?.trim()) {
+        setLogoUrl(parsed.logoUrl.trim());
+      }
+    } catch {
+      // keep default logo
+    }
   }, []);
 
   const dashboardHref = useMemo(() => {
@@ -50,7 +66,7 @@ export function AppHeader() {
   return (
     <header className="relative z-10 mx-auto flex w-full max-w-6xl items-center justify-between px-6 py-6">
       <a href="/" className="flex items-center gap-2">
-        <img src="/nigelec-logo.svg" alt="NIGELEC" className="h-9 w-auto" />
+        <img src={logoUrl} alt="NIGELEC" className="h-9 w-auto" />
       </a>
 
       {session.isAuthenticated ? (

@@ -182,6 +182,10 @@ type RecentHistoryRow = {
 
 type TabKey = "overview" | "tours" | "reading" | "sync";
 
+type PortalSettings = {
+  logoUrl: string;
+};
+
 export default function AgentDashboardPage() {
   const inputClassName =
     "h-12 w-full rounded-md border border-zinc-200 bg-white/70 px-5 text-base shadow-sm outline-none transition placeholder:text-zinc-400 focus:border-zinc-400 focus:ring-4 focus:ring-zinc-900/5 dark:border-white/10 dark:bg-white/5 dark:placeholder:text-zinc-500 dark:focus:border-white/20 dark:focus:ring-white/10";
@@ -197,6 +201,7 @@ export default function AgentDashboardPage() {
 
   const [mounted, setMounted] = useState(false);
   const [token, setToken] = useState<string | null>(null);
+  const [logoUrl, setLogoUrl] = useState("/nigelec-logo.svg");
   const payload = useMemo(() => (token ? decodeJwtPayload(token) : null), [token]);
   const role = payload?.role;
 
@@ -358,6 +363,17 @@ export default function AgentDashboardPage() {
   useEffect(() => {
     setMounted(true);
     setToken(getToken());
+
+    try {
+      const raw = localStorage.getItem("nigelec_portal_settings");
+      if (!raw) return;
+      const parsed = JSON.parse(raw) as Partial<PortalSettings>;
+      if (parsed.logoUrl?.trim()) {
+        setLogoUrl(parsed.logoUrl.trim());
+      }
+    } catch {
+      // keep default logo
+    }
   }, []);
 
   useEffect(() => {
@@ -657,7 +673,7 @@ export default function AgentDashboardPage() {
         <div className="grid gap-6 lg:grid-cols-[280px_1fr]">
           <aside className={`${cardClassName} p-5`}>
             <div className="flex items-center gap-3">
-              <img src="/nigelec-logo.svg" alt="NIGELEC" className="h-9 w-auto" />
+              <img src={logoUrl} alt="NIGELEC" className="h-9 w-auto" />
               <div>
                 <div className="text-sm font-semibold tracking-wide">Agent</div>
                 <div className="text-xs text-zinc-500 dark:text-zinc-400">NIGELEC</div>

@@ -164,7 +164,101 @@ type CreateStaffForm = {
   role: StaffRole;
 };
 
-type TabKey = "overview" | "users" | "clients" | "customers" | "ops";
+type PortalAnnouncement = {
+  id: string;
+  title: string;
+  message: string;
+  date: string;
+};
+
+type PortalSettings = {
+  logoUrl: string;
+  facebookUrl: string;
+  linkedinUrl: string;
+  xUrl: string;
+  youtubeUrl: string;
+  supportPhone: string;
+  supportWhatsapp: string;
+  latestAnnouncements: PortalAnnouncement[];
+};
+
+type PortalSettingsApiPayload = {
+  logoUrl?: string | null;
+  facebookUrl?: string | null;
+  linkedinUrl?: string | null;
+  xUrl?: string | null;
+  youtubeUrl?: string | null;
+  supportPhone?: string | null;
+  supportWhatsapp?: string | null;
+  latestAnnouncements?: Array<Partial<PortalAnnouncement>>;
+};
+
+const defaultPortalSettings: PortalSettings = {
+  logoUrl: "/nigelec-logo.svg",
+  facebookUrl: "https://facebook.com",
+  linkedinUrl: "https://linkedin.com",
+  xUrl: "https://x.com",
+  youtubeUrl: "https://youtube.com",
+  supportPhone: "+224 611 00 00 00",
+  supportWhatsapp: "+224611000000",
+  latestAnnouncements: [
+    {
+      id: "ann-1",
+      title: "Maintenance planifiee",
+      message: "Intervention reseau ce samedi de 22h a 01h sur Conakry Nord.",
+      date: "04 Mars 2026",
+    },
+    {
+      id: "ann-2",
+      title: "Nouveaux points de paiement",
+      message: "Le paiement NITA est disponible dans 12 nouveaux points partenaires.",
+      date: "03 Mars 2026",
+    },
+    {
+      id: "ann-3",
+      title: "Tournees prioritaires",
+      message: "Les releves des zones Koubia Nord et Bambeto sont prioritaires aujourd'hui.",
+      date: "02 Mars 2026",
+    },
+  ],
+};
+
+function normalizePortalSettings(source: PortalSettingsApiPayload | Partial<PortalSettings> | null | undefined): PortalSettings {
+  const safe = source ?? {};
+  const safeAnnouncements = Array.from({ length: 3 }, (_, index) => {
+    const fallback = defaultPortalSettings.latestAnnouncements[index];
+    const item = Array.isArray(safe.latestAnnouncements) ? safe.latestAnnouncements[index] : null;
+    return {
+      id: typeof item?.id === "string" && item.id.trim() ? item.id : fallback.id,
+      title: typeof item?.title === "string" ? item.title : fallback.title,
+      message: typeof item?.message === "string" ? item.message : fallback.message,
+      date: typeof item?.date === "string" ? item.date : fallback.date,
+    };
+  });
+
+  const legacyWhatsapp = (safe as { whatsappNumber?: string | null }).whatsappNumber;
+
+  return {
+    logoUrl: typeof safe.logoUrl === "string" ? safe.logoUrl : defaultPortalSettings.logoUrl,
+    facebookUrl: typeof safe.facebookUrl === "string" ? safe.facebookUrl : defaultPortalSettings.facebookUrl,
+    linkedinUrl: typeof safe.linkedinUrl === "string" ? safe.linkedinUrl : defaultPortalSettings.linkedinUrl,
+    xUrl: typeof safe.xUrl === "string" ? safe.xUrl : defaultPortalSettings.xUrl,
+    youtubeUrl: typeof safe.youtubeUrl === "string" ? safe.youtubeUrl : defaultPortalSettings.youtubeUrl,
+    supportPhone: typeof safe.supportPhone === "string" ? safe.supportPhone : defaultPortalSettings.supportPhone,
+    supportWhatsapp:
+      typeof safe.supportWhatsapp === "string"
+        ? safe.supportWhatsapp
+        : typeof legacyWhatsapp === "string"
+          ? legacyWhatsapp
+          : defaultPortalSettings.supportWhatsapp,
+    latestAnnouncements: safeAnnouncements,
+  };
+}
+
+const USERS_PAGE_SIZE = 10;
+const CUSTOMERS_PAGE_SIZE = 10;
+
+type TabKey = "overview" | "users" | "clients" | "customers" | "ops" | "settings";
 
 export default function AdminDashboardPage() {
   const inputClassName =
@@ -206,6 +300,15 @@ export default function AdminDashboardPage() {
   useEffect(() => {
     setMounted(true);
     setToken(getToken());
+
+    try {
+      const raw = localStorage.getItem("nigelec_portal_settings");
+      if (!raw) return;
+      const parsed = JSON.parse(raw) as Partial<PortalSettings>;
+      setPortalSettings(normalizePortalSettings(parsed));
+    } catch {
+      // keep defaults when local storage value is malformed
+    }
   }, []);
 
   const isAuthenticated = useMemo(() => Boolean(token), [token]);
@@ -237,6 +340,9 @@ export default function AdminDashboardPage() {
   const [usersSubTab, setUsersSubTab] = useState<"create" | "manage">("manage");
   const [customersSubTab, setCustomersSubTab] = useState<"pre" | "imports" | "zones" | "assign">("pre");
   const [opsSubTab, setOpsSubTab] = useState<"invoices" | "tariffs" | "tours" | "field">("invoices");
+  const [portalSettings, setPortalSettings] = useState<PortalSettings>(defaultPortalSettings);
+  const [logoFile, setLogoFile] = useState<File | null>(null);
+  const [logoUploadBusy, setLogoUploadBusy] = useState(false);
 
   const [kpiInternalUsers, setKpiInternalUsers] = useState<number | null>(null);
   const [kpiPreRegisteredCustomers, setKpiPreRegisteredCustomers] = useState<number | null>(null);
@@ -245,6 +351,7 @@ export default function AdminDashboardPage() {
   const [users, setUsers] = useState<UserRow[]>([]);
   const [usersLoading, setUsersLoading] = useState(false);
   const [usersQuery, setUsersQuery] = useState("");
+  const [usersPage, setUsersPage] = useState(0);
   const [usersRoleFilter, setUsersRoleFilter] = useState<Role | "">("");
   const [usersActiveFilter, setUsersActiveFilter] = useState<"" | "active" | "inactive">("");
   const [editingUser, setEditingUser] = useState<UserRow | null>(null);
@@ -255,6 +362,7 @@ export default function AdminDashboardPage() {
   const [customers, setCustomers] = useState<CustomerRow[]>([]);
   const [customersLoading, setCustomersLoading] = useState(false);
   const [customersQuery, setCustomersQuery] = useState("");
+  const [customersPage, setCustomersPage] = useState(0);
   const [customersActiveFilter, setCustomersActiveFilter] = useState<"" | "active" | "inactive">("");
 
   const [zones, setZones] = useState<ZoneRow[]>([]);
@@ -303,6 +411,68 @@ export default function AdminDashboardPage() {
     [kpiInternalUsers, kpiPreRegisteredCustomers, kpisLoading],
   );
 
+  const filteredUsersByPhone = useMemo(() => {
+    const normalized = usersQuery.replace(/\s+/g, "").trim();
+    if (!normalized) return users;
+    return users.filter((u) => u.phone.replace(/\s+/g, "").includes(normalized));
+  }, [users, usersQuery]);
+
+  const usersPagesCount = useMemo(
+    () => Math.max(1, Math.ceil(filteredUsersByPhone.length / USERS_PAGE_SIZE)),
+    [filteredUsersByPhone.length],
+  );
+
+  const pagedUsers = useMemo(() => {
+    const start = usersPage * USERS_PAGE_SIZE;
+    return filteredUsersByPhone.slice(start, start + USERS_PAGE_SIZE);
+  }, [filteredUsersByPhone, usersPage]);
+
+  const usersRangeText = useMemo(() => {
+    if (filteredUsersByPhone.length === 0) return "0/0";
+    const start = usersPage * USERS_PAGE_SIZE + 1;
+    const end = Math.min(filteredUsersByPhone.length, (usersPage + 1) * USERS_PAGE_SIZE);
+    return `${start}-${end}/${filteredUsersByPhone.length}`;
+  }, [filteredUsersByPhone.length, usersPage]);
+
+  useEffect(() => {
+    setUsersPage(0);
+  }, [usersQuery]);
+
+  useEffect(() => {
+    setUsersPage((current) => Math.min(current, usersPagesCount - 1));
+  }, [usersPagesCount]);
+
+  const filteredCustomersByPhone = useMemo(() => {
+    const normalized = customersQuery.replace(/\s+/g, "").trim();
+    if (!normalized) return customers;
+    return customers.filter((c) => c.phone.replace(/\s+/g, "").includes(normalized));
+  }, [customers, customersQuery]);
+
+  const customersPagesCount = useMemo(
+    () => Math.max(1, Math.ceil(filteredCustomersByPhone.length / CUSTOMERS_PAGE_SIZE)),
+    [filteredCustomersByPhone.length],
+  );
+
+  const pagedCustomers = useMemo(() => {
+    const start = customersPage * CUSTOMERS_PAGE_SIZE;
+    return filteredCustomersByPhone.slice(start, start + CUSTOMERS_PAGE_SIZE);
+  }, [filteredCustomersByPhone, customersPage]);
+
+  const customersRangeText = useMemo(() => {
+    if (filteredCustomersByPhone.length === 0) return "0/0";
+    const start = customersPage * CUSTOMERS_PAGE_SIZE + 1;
+    const end = Math.min(filteredCustomersByPhone.length, (customersPage + 1) * CUSTOMERS_PAGE_SIZE);
+    return `${start}-${end}/${filteredCustomersByPhone.length}`;
+  }, [filteredCustomersByPhone.length, customersPage]);
+
+  useEffect(() => {
+    setCustomersPage(0);
+  }, [customersQuery]);
+
+  useEffect(() => {
+    setCustomersPage((current) => Math.min(current, customersPagesCount - 1));
+  }, [customersPagesCount]);
+
   async function loadKpiCounts() {
     setKpisLoading(true);
     try {
@@ -315,6 +485,80 @@ export default function AdminDashboardPage() {
       }
     } finally {
       setKpisLoading(false);
+    }
+  }
+
+  async function loadPortalSettingsFromApi() {
+    const res = await apiFetch<PortalSettingsApiPayload>("/admin/portal-settings", { method: "GET" });
+    if (!res.ok) {
+      return;
+    }
+
+    const normalized = normalizePortalSettings(res.data);
+    setPortalSettings(normalized);
+    try {
+      localStorage.setItem("nigelec_portal_settings", JSON.stringify(normalized));
+    } catch {
+      // ignore local storage persistence errors
+    }
+  }
+
+  function updateAnnouncement(index: number, key: "title" | "message" | "date", value: string) {
+    setPortalSettings((current) => {
+      const nextAnnouncements = current.latestAnnouncements.map((item, itemIndex) =>
+        itemIndex === index ? { ...item, [key]: value } : item,
+      );
+      return { ...current, latestAnnouncements: nextAnnouncements };
+    });
+  }
+
+  async function uploadLogoToCloudinary() {
+    setMessage(null);
+    if (!logoFile) {
+      setMessage({ type: "error", text: "Sélectionnez un fichier logo avant l’upload." });
+      return;
+    }
+
+    const cloudName = process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME;
+    const uploadPreset = process.env.NEXT_PUBLIC_CLOUDINARY_UPLOAD_PRESET;
+    if (!cloudName || !uploadPreset) {
+      setMessage({
+        type: "error",
+        text: "Cloudinary non configuré. Définissez NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME et NEXT_PUBLIC_CLOUDINARY_UPLOAD_PRESET.",
+      });
+      return;
+    }
+
+    setLogoUploadBusy(true);
+    try {
+      const formData = new FormData();
+      formData.append("file", logoFile);
+      formData.append("upload_preset", uploadPreset);
+      formData.append("folder", "nigelec/branding");
+
+      const res = await fetch(`https://api.cloudinary.com/v1_1/${cloudName}/image/upload`, {
+        method: "POST",
+        body: formData,
+      });
+
+      const data = (await res.json().catch(() => null)) as { secure_url?: string; error?: { message?: string } } | null;
+      if (!res.ok || !data?.secure_url) {
+        setMessage({ type: "error", text: data?.error?.message ?? "Upload Cloudinary du logo impossible." });
+        return;
+      }
+
+      const uploadedLogoUrl = data.secure_url;
+      setPortalSettings((current) => {
+        const next = { ...current, logoUrl: uploadedLogoUrl };
+        localStorage.setItem("nigelec_portal_settings", JSON.stringify(next));
+        return next;
+      });
+      setLogoFile(null);
+      setMessage({ type: "ok", text: "Logo uploadé sur Cloudinary. Cliquez sur Enregistrer pour publier ce paramétrage." });
+    } catch {
+      setMessage({ type: "error", text: "Erreur réseau lors de l’upload du logo." });
+    } finally {
+      setLogoUploadBusy(false);
     }
   }
 
@@ -410,7 +654,6 @@ export default function AdminDashboardPage() {
     setUsersLoading(true);
     try {
       const params = new URLSearchParams();
-      if (usersQuery.trim()) params.set("q", usersQuery.trim());
       if (usersRoleFilter) params.set("role", usersRoleFilter);
       if (usersActiveFilter === "active") params.set("active", "true");
       if (usersActiveFilter === "inactive") params.set("active", "false");
@@ -426,6 +669,7 @@ export default function AdminDashboardPage() {
       }
 
       setUsers(res.data);
+      setUsersPage(0);
     } finally {
       setUsersLoading(false);
     }
@@ -487,6 +731,12 @@ export default function AdminDashboardPage() {
 
   useEffect(() => {
     if (!mounted || !isAuthenticated) return;
+    void loadPortalSettingsFromApi();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mounted, isAuthenticated]);
+
+  useEffect(() => {
+    if (!mounted || !isAuthenticated) return;
     if (tab !== "clients") return;
     void loadCustomers();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -515,7 +765,6 @@ export default function AdminDashboardPage() {
       const params = new URLSearchParams();
       params.set("role", "customer");
       params.set("limit", "500");
-      if (customersQuery.trim()) params.set("q", customersQuery.trim());
       if (customersActiveFilter === "active") params.set("active", "true");
       if (customersActiveFilter === "inactive") params.set("active", "false");
 
@@ -525,6 +774,7 @@ export default function AdminDashboardPage() {
         return;
       }
       setCustomers(res.data);
+      setCustomersPage(0);
     } finally {
       setCustomersLoading(false);
     }
@@ -779,6 +1029,40 @@ export default function AdminDashboardPage() {
     }
   }
 
+  async function savePortalSettings() {
+    setMessage(null);
+    const payload: PortalSettingsApiPayload = {
+      logoUrl: portalSettings.logoUrl,
+      facebookUrl: portalSettings.facebookUrl,
+      linkedinUrl: portalSettings.linkedinUrl,
+      xUrl: portalSettings.xUrl,
+      youtubeUrl: portalSettings.youtubeUrl,
+      supportPhone: portalSettings.supportPhone,
+      supportWhatsapp: portalSettings.supportWhatsapp,
+      latestAnnouncements: portalSettings.latestAnnouncements,
+    };
+
+    const res = await apiFetch<PortalSettingsApiPayload>("/admin/portal-settings", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+
+    if (!res.ok) {
+      setMessage({ type: "error", text: res.error });
+      return;
+    }
+
+    const normalized = normalizePortalSettings(res.data);
+    setPortalSettings(normalized);
+    try {
+      localStorage.setItem("nigelec_portal_settings", JSON.stringify(normalized));
+    } catch {
+      // ignore local storage persistence errors
+    }
+    setMessage({ type: "ok", text: "Paramétrage portail enregistré." });
+  }
+
   async function handleCreateStaff(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setMessage(null);
@@ -836,6 +1120,10 @@ export default function AdminDashboardPage() {
         title: "Opérations",
         subtitle: "Outils d’exploitation (sync factures, suivi, tournées).",
       },
+      settings: {
+        title: "Paramétrage",
+        subtitle: "Logo, réseaux sociaux et contacts de support du portail.",
+      },
     };
     return map;
   }, []);
@@ -874,7 +1162,7 @@ export default function AdminDashboardPage() {
         <div className="grid gap-6 lg:grid-cols-[280px_1fr]">
           <aside className="rounded-3xl border border-zinc-200 bg-white/70 p-5 shadow-sm backdrop-blur dark:border-white/10 dark:bg-white/5">
             <div className="flex items-center gap-3">
-              <img src="/nigelec-logo.svg" alt="NIGELEC" className="h-9 w-auto" />
+              <img src={portalSettings.logoUrl || "/nigelec-logo.svg"} alt="NIGELEC" className="h-9 w-auto" />
               <div>
                 <div className="text-sm font-semibold tracking-wide">Admin</div>
                 <div className="text-xs text-zinc-500 dark:text-zinc-400">NIGELEC</div>
@@ -887,6 +1175,7 @@ export default function AdminDashboardPage() {
               {navItem("clients", "Clients")}
               {navItem("customers", "Référentiels")}
               {navItem("ops", "Opérations")}
+              {navItem("settings", "Paramétrage")}
             </div>
 
             <div className="mt-6 h-px bg-zinc-200/70 dark:bg-white/10" />
@@ -1030,7 +1319,7 @@ export default function AdminDashboardPage() {
                   <div className="mt-5 grid gap-3 sm:grid-cols-3">
                     <input
                       className={inputClassName}
-                      placeholder="Rechercher (téléphone/nom)"
+                      placeholder="Rechercher par téléphone"
                       value={customersQuery}
                       onChange={(e) => setCustomersQuery(e.target.value)}
                     />
@@ -1066,11 +1355,11 @@ export default function AdminDashboardPage() {
 
                     {customersLoading ? (
                       <div className="px-4 py-4 text-sm text-zinc-700 dark:text-zinc-200">Chargement…</div>
-                    ) : customers.length === 0 ? (
+                    ) : filteredCustomersByPhone.length === 0 ? (
                       <div className="px-4 py-4 text-sm text-zinc-700 dark:text-zinc-200">Aucun client.</div>
                     ) : (
                       <div className="divide-y divide-zinc-200 dark:divide-white/10">
-                        {customers.map((c) => (
+                        {pagedCustomers.map((c) => (
                           <div key={c._id} className="grid grid-cols-12 gap-2 px-4 py-3 text-sm">
                             <div className="col-span-2 font-medium">{c.phone}</div>
                             <div className="col-span-2 text-zinc-700 dark:text-zinc-200">{c.meterNumber ?? "-"}</div>
@@ -1096,13 +1385,40 @@ export default function AdminDashboardPage() {
                       </div>
                     )}
                   </div>
+
+                  {!customersLoading && filteredCustomersByPhone.length > 0 ? (
+                    <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
+                      <div className="text-xs font-semibold text-zinc-500 dark:text-zinc-400">{customersRangeText}</div>
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setCustomersPage((p) => Math.max(0, p - 1))}
+                          disabled={customersPage === 0}
+                          className={"h-9 " + secondaryButtonSmClassName}
+                        >
+                          Précédent
+                        </button>
+                        <div className="text-xs font-semibold text-zinc-500 dark:text-zinc-400">
+                          Page {customersPage + 1}/{customersPagesCount}
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setCustomersPage((p) => Math.min(customersPagesCount - 1, p + 1))}
+                          disabled={customersPage >= customersPagesCount - 1}
+                          className={"h-9 " + secondaryButtonSmClassName}
+                        >
+                          Suivant
+                        </button>
+                      </div>
+                    </div>
+                  ) : null}
                 </section>
               </div>
             ) : null}
 
             {tab === "overview" ? (
-              <div className="grid gap-6 lg:grid-cols-3">
-                <section className={"lg:col-span-2 " + cardTintRedClassName}>
+              <div className="grid gap-6">
+                <section className={cardTintRedClassName}>
                   {sectionHeader("Raccourcis", "Accès rapide aux actions du back-office.")}
 
                   <div className="mt-5 grid gap-3 sm:grid-cols-2">
@@ -1149,27 +1465,6 @@ export default function AdminDashboardPage() {
                     </button>
                   </div>
                 </section>
-
-                <aside className={cardTintZincClassName}>
-                  <h2 className="text-lg font-semibold">État système</h2>
-                  <div className="mt-4 space-y-3 text-sm">
-                    <div className="flex items-center justify-between">
-                      <span className="text-zinc-600 dark:text-zinc-300">Backend</span>
-                      <span className="font-semibold">{process.env.NEXT_PUBLIC_API_URL ?? "http://127.0.0.1:8000"}</span>
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <span className="text-zinc-600 dark:text-zinc-300">Mongo</span>
-                      <span className="font-semibold">OK</span>
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <span className="text-zinc-600 dark:text-zinc-300">Mode</span>
-                      <span className="font-semibold">MVP</span>
-                    </div>
-                  </div>
-                  <div className={"mt-6 " + cardSoftClassName + " text-xs text-zinc-600 dark:text-zinc-300"}>
-                    API: <span className="font-medium">{process.env.NEXT_PUBLIC_API_URL ?? "http://127.0.0.1:8000"}</span>
-                  </div>
-                </aside>
               </div>
             ) : null}
 
@@ -1254,7 +1549,7 @@ export default function AdminDashboardPage() {
                     <div className="mt-5 grid gap-3 sm:grid-cols-3">
                       <input
                         className={inputClassName}
-                        placeholder="Rechercher (téléphone/nom)"
+                        placeholder="Rechercher par téléphone"
                         value={usersQuery}
                         onChange={(e) => setUsersQuery(e.target.value)}
                       />
@@ -1291,11 +1586,11 @@ export default function AdminDashboardPage() {
 
                         {usersLoading ? (
                           <div className="px-4 py-4 text-sm text-zinc-700 dark:text-zinc-200">Chargement…</div>
-                        ) : users.length === 0 ? (
+                        ) : filteredUsersByPhone.length === 0 ? (
                           <div className="px-4 py-4 text-sm text-zinc-700 dark:text-zinc-200">Aucun utilisateur.</div>
                         ) : (
                           <div className="divide-y divide-zinc-200 dark:divide-white/10">
-                            {users.map((u) => {
+                            {pagedUsers.map((u) => {
                               const name = u.name || "(sans nom)";
                               const initials = name
                                 .split(" ")
@@ -1363,6 +1658,33 @@ export default function AdminDashboardPage() {
                           </div>
                         )}
                       </div>
+
+                      {!usersLoading && filteredUsersByPhone.length > 0 ? (
+                        <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
+                          <div className="text-xs font-semibold text-zinc-500 dark:text-zinc-400">{usersRangeText}</div>
+                          <div className="flex items-center gap-2">
+                            <button
+                              type="button"
+                              onClick={() => setUsersPage((p) => Math.max(0, p - 1))}
+                              disabled={usersPage === 0}
+                              className={"h-9 " + secondaryButtonSmClassName}
+                            >
+                              Précédent
+                            </button>
+                            <div className="text-xs font-semibold text-zinc-500 dark:text-zinc-400">
+                              Page {usersPage + 1}/{usersPagesCount}
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => setUsersPage((p) => Math.min(usersPagesCount - 1, p + 1))}
+                              disabled={usersPage >= usersPagesCount - 1}
+                              className={"h-9 " + secondaryButtonSmClassName}
+                            >
+                              Suivant
+                            </button>
+                          </div>
+                        </div>
+                      ) : null}
                     </div>
 
                     {editingUser ? (
@@ -1917,6 +2239,170 @@ export default function AdminDashboardPage() {
                   </section>
                 </div>
               )
+            ) : null}
+
+            {tab === "settings" ? (
+              <div className="grid gap-6 lg:grid-cols-2">
+                <section className={cardClassName}>
+                  {sectionHeader("Identité visuelle", "Configurez le logo affiché sur le portail.")}
+                  <div className="mt-5 space-y-4">
+                    <div className="space-y-2">
+                      <label className="text-sm font-medium">URL logo</label>
+                      <input
+                        className={inputClassName}
+                        value={portalSettings.logoUrl}
+                        onChange={(e) => setPortalSettings((s) => ({ ...s, logoUrl: e.target.value }))}
+                        placeholder="/nigelec-logo.svg"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-sm font-medium">Fichier logo (Cloudinary)</label>
+                      <input
+                        type="file"
+                        accept="image/*"
+                        className={inputClassName + " h-auto py-3"}
+                        onChange={(e) => setLogoFile(e.target.files?.[0] ?? null)}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => void uploadLogoToCloudinary()}
+                        disabled={logoUploadBusy || !logoFile}
+                        className={"h-10 " + secondaryButtonSmClassName}
+                      >
+                        {logoUploadBusy ? "Upload logo..." : "Uploader le logo sur Cloudinary"}
+                      </button>
+                      <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                        Requiert NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME et NEXT_PUBLIC_CLOUDINARY_UPLOAD_PRESET.
+                      </p>
+                    </div>
+                    <div className={cardSoftClassName}>
+                      <div className="text-xs font-semibold text-zinc-500 dark:text-zinc-400">Prévisualisation</div>
+                      <div className="mt-3 flex items-center gap-3">
+                        <img src={portalSettings.logoUrl || "/nigelec-logo.svg"} alt="Logo portail" className="h-10 w-auto rounded-md" />
+                        <div className="text-sm text-zinc-600 dark:text-zinc-300">Logo utilisé pour le header et le footer.</div>
+                      </div>
+                    </div>
+                  </div>
+                </section>
+
+                <section className={cardClassName}>
+                  {sectionHeader("Contacts support", "Numéros affichés aux utilisateurs finaux.")}
+                  <div className="mt-5 space-y-4">
+                    <div className="space-y-2">
+                      <label className="text-sm font-medium">Numéro support</label>
+                      <input
+                        className={inputClassName}
+                        value={portalSettings.supportPhone}
+                        onChange={(e) => setPortalSettings((s) => ({ ...s, supportPhone: e.target.value }))}
+                        placeholder="+224 611 00 00 00"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-sm font-medium">Numéro WhatsApp</label>
+                      <input
+                        className={inputClassName}
+                        value={portalSettings.supportWhatsapp}
+                        onChange={(e) => setPortalSettings((s) => ({ ...s, supportWhatsapp: e.target.value }))}
+                        placeholder="+224611000000"
+                      />
+                    </div>
+                  </div>
+                </section>
+
+                <section className={"lg:col-span-2 " + cardClassName}>
+                  {sectionHeader("Réseaux sociaux", "Liens publics affichés dans le footer.")}
+                  <div className="mt-5 grid gap-4 sm:grid-cols-2">
+                    <div className="space-y-2">
+                      <label className="text-sm font-medium">Facebook</label>
+                      <input
+                        className={inputClassName}
+                        value={portalSettings.facebookUrl}
+                        onChange={(e) => setPortalSettings((s) => ({ ...s, facebookUrl: e.target.value }))}
+                        placeholder="https://facebook.com/..."
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-sm font-medium">LinkedIn</label>
+                      <input
+                        className={inputClassName}
+                        value={portalSettings.linkedinUrl}
+                        onChange={(e) => setPortalSettings((s) => ({ ...s, linkedinUrl: e.target.value }))}
+                        placeholder="https://linkedin.com/..."
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-sm font-medium">X</label>
+                      <input
+                        className={inputClassName}
+                        value={portalSettings.xUrl}
+                        onChange={(e) => setPortalSettings((s) => ({ ...s, xUrl: e.target.value }))}
+                        placeholder="https://x.com/..."
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-sm font-medium">YouTube</label>
+                      <input
+                        className={inputClassName}
+                        value={portalSettings.youtubeUrl}
+                        onChange={(e) => setPortalSettings((s) => ({ ...s, youtubeUrl: e.target.value }))}
+                        placeholder="https://youtube.com/..."
+                      />
+                    </div>
+                  </div>
+
+                  <div className="mt-6 h-px bg-zinc-200/70 dark:bg-white/10" />
+
+                  <div className="mt-6">
+                    <div className="text-sm font-semibold">Dernières annonces</div>
+                    <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-300">
+                      Modifiez les 3 annonces affichées en haut de la homepage.
+                    </p>
+
+                    <div className="mt-4 grid gap-4 lg:grid-cols-3">
+                      {portalSettings.latestAnnouncements.slice(0, 3).map((announcement, index) => (
+                        <div key={announcement.id} className={cardSoftClassName}>
+                          <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
+                            Annonce {index + 1}
+                          </div>
+                          <div className="mt-3 space-y-3">
+                            <div className="space-y-1">
+                              <label className="text-xs font-medium text-zinc-600 dark:text-zinc-300">Titre</label>
+                              <input
+                                className={inputClassName}
+                                value={announcement.title}
+                                onChange={(e) => updateAnnouncement(index, "title", e.target.value)}
+                              />
+                            </div>
+                            <div className="space-y-1">
+                              <label className="text-xs font-medium text-zinc-600 dark:text-zinc-300">Message</label>
+                              <textarea
+                                className={inputClassName + " h-24 resize-y py-3"}
+                                value={announcement.message}
+                                onChange={(e) => updateAnnouncement(index, "message", e.target.value)}
+                              />
+                            </div>
+                            <div className="space-y-1">
+                              <label className="text-xs font-medium text-zinc-600 dark:text-zinc-300">Date affichée</label>
+                              <input
+                                className={inputClassName}
+                                value={announcement.date}
+                                onChange={(e) => updateAnnouncement(index, "date", e.target.value)}
+                                placeholder="04 Mars 2026"
+                              />
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="mt-5 flex flex-wrap items-center gap-2">
+                    <button type="button" className={"h-11 " + primaryButtonClassName} onClick={savePortalSettings}>
+                      Enregistrer le paramétrage
+                    </button>
+                  </div>
+                </section>
+              </div>
             ) : null}
 
               </>

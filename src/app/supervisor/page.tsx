@@ -113,6 +113,10 @@ type GenerateToursResponse = {
   tours: TourRow[];
 };
 
+type PortalSettings = {
+  logoUrl: string;
+};
+
 type TabKey = "overview" | "agents" | "tours" | "readings" | "customers" | "meters";
 
 function getToken(): string | null {
@@ -195,6 +199,7 @@ export default function SupervisorDashboardPage() {
 
   const [mounted, setMounted] = useState(false);
   const [token, setToken] = useState<string | null>(null);
+  const [logoUrl, setLogoUrl] = useState("/nigelec-logo.svg");
   const payload = useMemo(() => (token ? decodeJwtPayload(token) : null), [token]);
   const role = payload?.role as Role | undefined;
 
@@ -243,6 +248,17 @@ export default function SupervisorDashboardPage() {
   useEffect(() => {
     setMounted(true);
     setToken(getToken());
+
+    try {
+      const raw = localStorage.getItem("nigelec_portal_settings");
+      if (!raw) return;
+      const parsed = JSON.parse(raw) as Partial<PortalSettings>;
+      if (parsed.logoUrl?.trim()) {
+        setLogoUrl(parsed.logoUrl.trim());
+      }
+    } catch {
+      // keep default logo
+    }
   }, []);
 
   useEffect(() => {
@@ -553,7 +569,7 @@ export default function SupervisorDashboardPage() {
         <div className="grid gap-6 lg:grid-cols-[280px_1fr]">
           <aside className={`${cardClassName} p-5`}>
             <div className="flex items-center gap-3">
-              <img src="/nigelec-logo.svg" alt="NIGELEC" className="h-9 w-auto" />
+              <img src={logoUrl} alt="NIGELEC" className="h-9 w-auto" />
               <div>
                 <div className="text-sm font-semibold tracking-wide">Superviseur</div>
                 <div className="text-xs text-zinc-500 dark:text-zinc-400">NIGELEC</div>

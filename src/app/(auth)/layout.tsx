@@ -1,11 +1,31 @@
-import type { ReactNode } from "react";
-import Image from "next/image";
+"use client";
+
+import { useEffect, useState, type ReactNode } from "react";
+
+type PortalSettings = {
+  logoUrl: string;
+};
 
 export default function AuthLayout({
   children,
 }: Readonly<{
   children: ReactNode;
 }>) {
+  const [logoUrl, setLogoUrl] = useState("/nigelec-logo.svg");
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem("nigelec_portal_settings");
+      if (!raw) return;
+      const parsed = JSON.parse(raw) as Partial<PortalSettings>;
+      if (parsed.logoUrl?.trim()) {
+        setLogoUrl(parsed.logoUrl.trim());
+      }
+    } catch {
+      // keep default logo
+    }
+  }, []);
+
   return (
     <div className="relative min-h-screen overflow-hidden bg-zinc-50 text-zinc-900 dark:bg-black dark:text-zinc-50">
       <div className="pointer-events-none absolute inset-0">
@@ -16,14 +36,7 @@ export default function AuthLayout({
       <div className="relative z-10 mx-auto grid min-h-screen w-full max-w-6xl grid-cols-1 items-center gap-10 px-6 py-10 lg:grid-cols-2">
         <div className="hidden lg:block">
           <a href="/" className="inline-flex items-center gap-2">
-            <Image
-              src="/nigelec-logo.svg"
-              alt="NIGELEC"
-              width={132}
-              height={32}
-              className="h-8 w-auto"
-              priority
-            />
+            <img src={logoUrl} alt="NIGELEC" className="h-8 w-auto" />
           </a>
 
           <h1 className="mt-6 text-4xl font-semibold leading-tight tracking-tight">
