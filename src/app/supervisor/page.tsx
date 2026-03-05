@@ -17,6 +17,11 @@ type ReadingRow = {
   consumption?: number | null;
   tariffCode?: string | null;
   amount?: number | null;
+  source?: "AGENT" | "CUSTOMER" | null;
+  correctionStatus?: "NONE" | "PENDING_SUPERVISOR" | "APPROVED" | "REJECTED" | null;
+  correctionReason?: string | null;
+  correctionProposedIndex?: number | null;
+  correctionRequestedAt?: string | null;
   center?: string | null;
   zone?: string | null;
   sector?: string | null;
@@ -234,6 +239,7 @@ export default function SupervisorDashboardPage() {
   const [expandedTourId, setExpandedTourId] = useState<string | null>(null);
 
   const [readingsDate, setReadingsDate] = useState<string>(new Date().toISOString().slice(0, 10));
+  const [readingsCorrectionFilter, setReadingsCorrectionFilter] = useState<"ALL" | "PENDING_SUPERVISOR" | "APPROVED" | "REJECTED" | "NONE">("ALL");
   const [readingsBusy, setReadingsBusy] = useState(false);
   const [readings, setReadings] = useState<ReadingRow[]>([]);
 
@@ -286,6 +292,7 @@ export default function SupervisorDashboardPage() {
     try {
       const params = new URLSearchParams();
       if (readingsDate) params.set("date", readingsDate);
+      if (readingsCorrectionFilter !== "ALL") params.set("correctionStatus", readingsCorrectionFilter);
       params.set("limit", "500");
       const res = await apiFetch<ReadingRow[]>(`/supervisor/readings?${params.toString()}`, { method: "GET" });
       if (!res.ok) {
@@ -296,6 +303,26 @@ export default function SupervisorDashboardPage() {
     } finally {
       setReadingsBusy(false);
     }
+  }
+
+  async function reviewCorrection(readingId: string, approve: boolean) {
+    const note = window.prompt(
+      approve ? "Note de validation (optionnel)" : "Motif du rejet (optionnel)",
+      "",
+    );
+    if (note === null) return;
+
+    const res = await apiFetch<ReadingRow>(`/supervisor/readings/${readingId}/correction-review`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ approve, note: note.trim() || null }),
+    });
+    if (!res.ok) {
+      setMessage({ type: "error", text: res.error });
+      return;
+    }
+    setMessage({ type: "ok", text: approve ? "Correction validée. Facture recalculée." : "Correction rejetée." });
+    void loadReadings();
   }
 
   async function loadMe() {
@@ -579,7 +606,7 @@ export default function SupervisorDashboardPage() {
             <div className="mt-6 space-y-2">
               {navItem("overview", "Vue d’ensemble")}
               {navItem("agents", "Agents", `${agents.length}`)}
-              {navItem("tours", "Tournées")}
+              {navItem("tours", "Tournées", `${tours.length}`)}
               {navItem("readings", "Relevés", `${readings.length}`)}
               {navItem("customers", "Clients", `${customers.length}`)}
               {navItem("meters", "Compteurs", `${meters.length}`)}
@@ -1115,7 +1142,7 @@ export default function SupervisorDashboardPage() {
                     <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
                       <div>
                         <h2 className="text-lg font-semibold">Relevés</h2>
-                        <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-300">Relevés validés par les agents (par date).</p>
+                        <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-300">Relevés de tournée (agents et clients) par date.</p>
                       </div>
 
                       <div className="flex flex-wrap items-center gap-2">
@@ -1136,10 +1163,24 @@ export default function SupervisorDashboardPage() {
                       </div>
                     </div>
 
-                    <div className="mt-4 grid gap-3 sm:grid-cols-3">
+                    <div className="mt-4 grid gap-3 sm:grid-cols-4">
                       <div className="space-y-2">
                         <label className="text-sm font-medium">Date</label>
                         <input className={inputClassName} type="date" value={readingsDate} onChange={(e) => setReadingsDate(e.target.value)} />
+                      </div>
+                      <div className="space-y-2">
+                        <label className="text-sm font-medium">Correction</label>
+                        <select
+                          className={inputClassName}
+                          value={readingsCorrectionFilter}
+                          onChange={(e) => setReadingsCorrectionFilter(e.target.value as "ALL" | "PENDING_SUPERVISOR" | "APPROVED" | "REJECTED" | "NONE")}
+                        >
+                          <option value="ALL">Toutes</option>
+                          <option value="PENDING_SUPERVISOR">En attente</option>
+                          <option value="APPROVED">Validées</option>
+                          <option value="REJECTED">Rejetées</option>
+                          <option value="NONE">Sans correction</option>
+                        </select>
                       </div>
                       <div className="flex items-end">
                         <button type="button" onClick={() => void loadReadings()} className={`w-full ${secondaryButtonClassName}`}>
@@ -1148,19 +1189,23 @@ export default function SupervisorDashboardPage() {
                       </div>
                     </div>
 
-                    <div className="mt-5 overflow-hidden rounded-2xl border border-zinc-200 dark:border-white/10">
+                    <div className="mt-5 overflow-x-auto rounded-2xl border border-zinc-200 dark:border-white/10">
                       <table className="w-full text-sm">
                         <thead className="bg-zinc-50 text-left text-xs text-zinc-500 dark:bg-white/5 dark:text-zinc-400">
                           <tr>
                             <th className="px-4 py-3 font-semibold">Date</th>
                             <th className="px-4 py-3 font-semibold">Centre</th>
                             <th className="px-4 py-3 font-semibold">Zone</th>
+                            <th className="px-4 py-3 font-semibold">Secteur</th>
                             <th className="px-4 py-3 font-semibold">Compteur</th>
+                            <th className="px-4 py-3 font-semibold">Saisi par</th>
                             <th className="px-4 py-3 font-semibold">Ancien</th>
                             <th className="px-4 py-3 font-semibold">Nouveau</th>
                             <th className="px-4 py-3 font-semibold">Conso</th>
-                            <th className="px-4 py-3 font-semibold">Tarif</th>
                             <th className="px-4 py-3 font-semibold">Montant</th>
+                            <th className="px-4 py-3 font-semibold">Correction</th>
+                            <th className="px-4 py-3 font-semibold">Détails</th>
+                            <th className="px-4 py-3 font-semibold">Action</th>
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-zinc-200 bg-white/70 dark:divide-white/10 dark:bg-black/30">
@@ -1170,17 +1215,64 @@ export default function SupervisorDashboardPage() {
                                 <td className="px-4 py-3">{r.date}</td>
                                 <td className="px-4 py-3">{r.center ?? "—"}</td>
                                 <td className="px-4 py-3">{r.zone ?? "—"}</td>
+                                <td className="px-4 py-3">{r.sector ?? "—"}</td>
                                 <td className="px-4 py-3">{r.meterNumber}</td>
+                                <td className="px-4 py-3 text-xs font-semibold">
+                                  {r.source === "CUSTOMER" ? (
+                                    <div>
+                                      <div className="font-semibold">Client</div>
+                                      <div className="text-zinc-500 dark:text-zinc-400">Self-reading</div>
+                                    </div>
+                                  ) : (
+                                    <div>
+                                      <div className="font-semibold">{agents.find((a) => a._id === r.agentId)?.name ?? "Agent"}</div>
+                                      <div className="text-zinc-500 dark:text-zinc-400">{agents.find((a) => a._id === r.agentId)?.phone ?? r.agentId}</div>
+                                    </div>
+                                  )}
+                                </td>
                                 <td className="px-4 py-3">{r.oldIndex ?? "—"}</td>
                                 <td className="px-4 py-3">{r.newIndex}</td>
                                 <td className="px-4 py-3">{r.consumption ?? "—"}</td>
-                                <td className="px-4 py-3">{r.tariffCode ?? "—"}</td>
                                 <td className="px-4 py-3">{r.amount != null ? `${r.amount} FCFA` : "—"}</td>
+                                <td className="px-4 py-3 text-xs">
+                                  <div className="font-semibold">{r.correctionStatus ?? "NONE"}</div>
+                                  {r.correctionStatus === "PENDING_SUPERVISOR" ? (
+                                    <div className="mt-1 text-zinc-600 dark:text-zinc-300">
+                                      Proposé: {r.correctionProposedIndex ?? "—"}
+                                      {r.correctionReason ? ` · ${r.correctionReason}` : ""}
+                                    </div>
+                                  ) : null}
+                                </td>
+                                <td className="px-4 py-3 text-xs text-zinc-600 dark:text-zinc-300">
+                                  <div>Date/Heure: {r.createdAt ? String(r.createdAt).slice(0, 19).replace("T", " ") : "—"}</div>
+                                </td>
+                                <td className="px-4 py-3">
+                                  {r.correctionStatus === "PENDING_SUPERVISOR" ? (
+                                    <div className="flex gap-2">
+                                      <button
+                                        type="button"
+                                        className="inline-flex h-8 items-center justify-center rounded-lg bg-emerald-600 px-3 text-xs font-semibold text-white transition hover:bg-emerald-700"
+                                        onClick={() => void reviewCorrection(r._id, true)}
+                                      >
+                                        Valider
+                                      </button>
+                                      <button
+                                        type="button"
+                                        className="inline-flex h-8 items-center justify-center rounded-lg bg-rose-600 px-3 text-xs font-semibold text-white transition hover:bg-rose-700"
+                                        onClick={() => void reviewCorrection(r._id, false)}
+                                      >
+                                        Rejeter
+                                      </button>
+                                    </div>
+                                  ) : (
+                                    <span className="text-xs text-zinc-500 dark:text-zinc-400">—</span>
+                                  )}
+                                </td>
                               </tr>
                             ))
                           ) : (
                             <tr>
-                              <td className="px-4 py-3" colSpan={9}>
+                              <td className="px-4 py-3" colSpan={12}>
                                 {readingsBusy ? "Chargement…" : "Aucun relevé."}
                               </td>
                             </tr>

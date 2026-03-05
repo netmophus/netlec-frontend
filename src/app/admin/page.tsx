@@ -18,6 +18,7 @@ async function apiDownload(path: string): Promise<ApiResult<Blob>> {
       const data = (await res.json().catch(() => null)) as { detail?: string } | null;
       return { ok: false, status: res.status, error: data?.detail ?? `Erreur HTTP ${res.status}` };
     }
+
     const blob = await res.blob();
     return { ok: true, data: blob };
   } catch {
@@ -80,6 +81,77 @@ type ZoneRow = {
   createdAt?: string;
 };
 
+type MeterRow = {
+  _id: string;
+  cycleId?: string | null;
+  meterNumber: string;
+  center?: string | null;
+  zone?: string | null;
+  sector?: string | null;
+  routeOrder?: number | null;
+  subscriberNumber?: string | null;
+  police?: string | null;
+  address?: string | null;
+};
+
+type ReadingRow = {
+  _id: string;
+  cycleId?: string | null;
+  date: string;
+  tourId?: string | null;
+  agentId?: string | null;
+  meterNumber: string;
+  oldIndex?: number | null;
+  newIndex: number;
+  consumption?: number | null;
+  amount?: number | null;
+  source?: "AGENT" | "CUSTOMER" | null;
+  correctionStatus?: "NONE" | "PENDING_SUPERVISOR" | "APPROVED" | "REJECTED" | null;
+  correctionReason?: string | null;
+  correctionProposedIndex?: number | null;
+  createdAt?: string;
+};
+
+type TourActivityRow = {
+  _id: string;
+  cycleId?: string | null;
+  date?: string | null;
+  center?: string | null;
+  zone?: string | null;
+  sector?: string | null;
+  agentId?: string | null;
+  agentName?: string | null;
+  agentPhone?: string | null;
+  totalMeters: number;
+  readMeters: number;
+  pendingMeters: number;
+  activityStatus: "NOT_STARTED" | "IN_PROGRESS" | "DONE";
+  lastReadingAt?: string | null;
+  createdAt?: string | null;
+};
+
+type TourTracePoint = {
+  meterNumber?: string | null;
+  lat: number;
+  lng: number;
+  recordedAt?: string | null;
+  source?: string | null;
+};
+
+type TourTraceResponse = {
+  tour: {
+    _id: string;
+    cycleId?: string | null;
+    date?: string | null;
+    center?: string | null;
+    zone?: string | null;
+    sector?: string | null;
+    agentId?: string | null;
+    totalMeters?: number;
+  };
+  points: TourTracePoint[];
+};
+
 type ImportCustomersReport = {
   inserted: number;
   updated: number;
@@ -94,6 +166,13 @@ type ImportMetersReport = {
   skipped: number;
   errors: number;
   errorLines: number[];
+};
+
+type ActiveCycle = {
+  cycleId: string;
+  status: "OPEN" | "CLOSED";
+  openedAt?: string | null;
+  updatedAt?: string | null;
 };
 
 type SyncInvoicesReport = {
@@ -257,8 +336,9 @@ function normalizePortalSettings(source: PortalSettingsApiPayload | Partial<Port
 
 const USERS_PAGE_SIZE = 10;
 const CUSTOMERS_PAGE_SIZE = 10;
+const METERS_PAGE_SIZE = 10;
 
-type TabKey = "overview" | "users" | "clients" | "customers" | "ops" | "settings";
+type TabKey = "overview" | "users" | "clients" | "meters" | "customers" | "ops" | "settings";
 
 export default function AdminDashboardPage() {
   const inputClassName =
@@ -339,7 +419,7 @@ export default function AdminDashboardPage() {
 
   const [usersSubTab, setUsersSubTab] = useState<"create" | "manage">("manage");
   const [customersSubTab, setCustomersSubTab] = useState<"pre" | "imports" | "zones" | "assign">("pre");
-  const [opsSubTab, setOpsSubTab] = useState<"invoices" | "tariffs" | "tours" | "field">("invoices");
+  const [opsSubTab, setOpsSubTab] = useState<"readings" | "invoices" | "tariffs" | "tours" | "field">("readings");
   const [portalSettings, setPortalSettings] = useState<PortalSettings>(defaultPortalSettings);
   const [logoFile, setLogoFile] = useState<File | null>(null);
   const [logoUploadBusy, setLogoUploadBusy] = useState(false);
@@ -358,12 +438,35 @@ export default function AdminDashboardPage() {
   const [editName, setEditName] = useState("");
   const [editRole, setEditRole] = useState<Role>("agent");
   const [editIsActive, setEditIsActive] = useState(true);
+  const [resetPasswordUser, setResetPasswordUser] = useState<UserRow | null>(null);
+  const [resetPasswordValue, setResetPasswordValue] = useState("");
+  const [resetPasswordBusy, setResetPasswordBusy] = useState(false);
 
   const [customers, setCustomers] = useState<CustomerRow[]>([]);
   const [customersLoading, setCustomersLoading] = useState(false);
   const [customersQuery, setCustomersQuery] = useState("");
   const [customersPage, setCustomersPage] = useState(0);
   const [customersActiveFilter, setCustomersActiveFilter] = useState<"" | "active" | "inactive">("");
+
+  const [meters, setMeters] = useState<MeterRow[]>([]);
+  const [metersLoading, setMetersLoading] = useState(false);
+  const [metersQuery, setMetersQuery] = useState("");
+  const [metersPage, setMetersPage] = useState(0);
+
+  const [adminReadings, setAdminReadings] = useState<ReadingRow[]>([]);
+  const [adminReadingsLoading, setAdminReadingsLoading] = useState(false);
+  const [adminReadingsDate, setAdminReadingsDate] = useState<string>(new Date().toISOString().slice(0, 10));
+  const [adminReadingsCorrectionFilter, setAdminReadingsCorrectionFilter] = useState<"ALL" | "PENDING_SUPERVISOR" | "APPROVED" | "REJECTED" | "NONE">("ALL");
+
+  const [adminTours, setAdminTours] = useState<TourActivityRow[]>([]);
+  const [adminToursLoading, setAdminToursLoading] = useState(false);
+  const [adminToursDate, setAdminToursDate] = useState<string>(new Date().toISOString().slice(0, 10));
+  const [adminToursCenter, setAdminToursCenter] = useState("");
+  const [adminToursZone, setAdminToursZone] = useState("");
+  const [adminToursSector, setAdminToursSector] = useState("");
+  const [fieldSelectedTourId, setFieldSelectedTourId] = useState("");
+  const [fieldTrace, setFieldTrace] = useState<TourTraceResponse | null>(null);
+  const [fieldTraceLoading, setFieldTraceLoading] = useState(false);
 
   const [zones, setZones] = useState<ZoneRow[]>([]);
   const [zonesLoading, setZonesLoading] = useState(false);
@@ -385,6 +488,8 @@ export default function AdminDashboardPage() {
   const [importMetersValidateZones, setImportMetersValidateZones] = useState(true);
   const [importMetersBusy, setImportMetersBusy] = useState(false);
   const [importMetersReport, setImportMetersReport] = useState<ImportMetersReport | null>(null);
+  const [activeCycle, setActiveCycle] = useState<ActiveCycle | null>(null);
+  const [activeCycleLoading, setActiveCycleLoading] = useState(false);
 
   const [syncInvoicesBusy, setSyncInvoicesBusy] = useState(false);
   const [syncInvoicesGraceDays, setSyncInvoicesGraceDays] = useState(10);
@@ -465,6 +570,34 @@ export default function AdminDashboardPage() {
     return `${start}-${end}/${filteredCustomersByPhone.length}`;
   }, [filteredCustomersByPhone.length, customersPage]);
 
+  const filteredMeters = useMemo(() => {
+    const normalized = metersQuery.trim().toLowerCase();
+    if (!normalized) return meters;
+    return meters.filter((m) => {
+      const meterNumber = (m.meterNumber ?? "").toLowerCase();
+      const subscriberNumber = (m.subscriberNumber ?? "").toLowerCase();
+      const police = (m.police ?? "").toLowerCase();
+      return meterNumber.includes(normalized) || subscriberNumber.includes(normalized) || police.includes(normalized);
+    });
+  }, [meters, metersQuery]);
+
+  const metersPagesCount = useMemo(
+    () => Math.max(1, Math.ceil(filteredMeters.length / METERS_PAGE_SIZE)),
+    [filteredMeters.length],
+  );
+
+  const pagedMeters = useMemo(() => {
+    const start = metersPage * METERS_PAGE_SIZE;
+    return filteredMeters.slice(start, start + METERS_PAGE_SIZE);
+  }, [filteredMeters, metersPage]);
+
+  const metersRangeText = useMemo(() => {
+    if (filteredMeters.length === 0) return "0/0";
+    const start = metersPage * METERS_PAGE_SIZE + 1;
+    const end = Math.min(filteredMeters.length, (metersPage + 1) * METERS_PAGE_SIZE);
+    return `${start}-${end}/${filteredMeters.length}`;
+  }, [filteredMeters.length, metersPage]);
+
   useEffect(() => {
     setCustomersPage(0);
   }, [customersQuery]);
@@ -472,6 +605,14 @@ export default function AdminDashboardPage() {
   useEffect(() => {
     setCustomersPage((current) => Math.min(current, customersPagesCount - 1));
   }, [customersPagesCount]);
+
+  useEffect(() => {
+    setMetersPage(0);
+  }, [metersQuery]);
+
+  useEffect(() => {
+    setMetersPage((current) => Math.min(current, metersPagesCount - 1));
+  }, [metersPagesCount]);
 
   async function loadKpiCounts() {
     setKpisLoading(true);
@@ -485,6 +626,70 @@ export default function AdminDashboardPage() {
       }
     } finally {
       setKpisLoading(false);
+    }
+  }
+
+  async function loadAdminReadings() {
+    setAdminReadingsLoading(true);
+    try {
+      const params = new URLSearchParams();
+      params.set("limit", "1000");
+      if (adminReadingsDate) params.set("date", adminReadingsDate);
+      if (adminReadingsCorrectionFilter !== "ALL") params.set("correctionStatus", adminReadingsCorrectionFilter);
+
+      const res = await apiFetch<ReadingRow[]>(`/admin/readings?${params.toString()}`, { method: "GET" });
+      if (!res.ok) {
+        setMessage({ type: "error", text: res.error });
+        return;
+      }
+      setAdminReadings(res.data);
+    } finally {
+      setAdminReadingsLoading(false);
+    }
+  }
+
+  async function loadAdminToursActivity() {
+    setAdminToursLoading(true);
+    try {
+      const params = new URLSearchParams();
+      params.set("limit", "1000");
+      if (adminToursDate) params.set("date", adminToursDate);
+      if (adminToursCenter.trim()) params.set("center", adminToursCenter.trim());
+      if (adminToursZone.trim()) params.set("zone", adminToursZone.trim());
+      if (adminToursSector.trim()) params.set("sector", adminToursSector.trim());
+
+      const res = await apiFetch<TourActivityRow[]>(`/admin/tours/activity?${params.toString()}`, { method: "GET" });
+      if (!res.ok) {
+        setMessage({ type: "error", text: res.error });
+        return;
+      }
+      setAdminTours(res.data);
+      if (res.data.length === 0) {
+        setFieldSelectedTourId("");
+        setFieldTrace(null);
+      } else if (!res.data.some((t) => t._id === fieldSelectedTourId)) {
+        setFieldSelectedTourId(res.data[0]._id);
+      }
+    } finally {
+      setAdminToursLoading(false);
+    }
+  }
+
+  async function loadFieldTrace(tourId: string) {
+    if (!tourId) {
+      setFieldTrace(null);
+      return;
+    }
+    setFieldTraceLoading(true);
+    try {
+      const res = await apiFetch<TourTraceResponse>(`/admin/tours/${encodeURIComponent(tourId)}/trace`, { method: "GET" });
+      if (!res.ok) {
+        setMessage({ type: "error", text: res.error });
+        return;
+      }
+      setFieldTrace(res.data);
+    } finally {
+      setFieldTraceLoading(false);
     }
   }
 
@@ -696,6 +901,7 @@ export default function AdminDashboardPage() {
       qs.set("delimiter", importMetersDelimiter);
       qs.set("upsert", importMetersUpsert ? "true" : "false");
       qs.set("validateZones", importMetersValidateZones ? "true" : "false");
+      if (activeCycle?.cycleId) qs.set("cycleId", activeCycle.cycleId);
 
       const res = await apiFetch<ImportMetersReport>(`/admin/meters/import?${qs.toString()}`, {
         method: "POST",
@@ -711,6 +917,20 @@ export default function AdminDashboardPage() {
       setMessage({ type: "ok", text: "Import meters terminé." });
     } finally {
       setImportMetersBusy(false);
+    }
+  }
+
+  async function loadActiveCycle() {
+    setActiveCycleLoading(true);
+    try {
+      const res = await apiFetch<ActiveCycle>("/admin/cycles/active", { method: "GET" });
+      if (!res.ok) {
+        setMessage({ type: "error", text: res.error });
+        return;
+      }
+      setActiveCycle(res.data);
+    } finally {
+      setActiveCycleLoading(false);
     }
   }
 
@@ -744,6 +964,13 @@ export default function AdminDashboardPage() {
 
   useEffect(() => {
     if (!mounted || !isAuthenticated) return;
+    if (tab !== "meters") return;
+    void loadMeters();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mounted, isAuthenticated, tab]);
+
+  useEffect(() => {
+    if (!mounted || !isAuthenticated) return;
     if (tab !== "customers") return;
     if (customersSubTab !== "zones" && customersSubTab !== "assign") return;
     void loadZones();
@@ -753,11 +980,39 @@ export default function AdminDashboardPage() {
 
   useEffect(() => {
     if (!mounted || !isAuthenticated) return;
+    if (tab !== "customers") return;
+    if (customersSubTab !== "imports") return;
+    void loadActiveCycle();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mounted, isAuthenticated, tab, customersSubTab]);
+
+  useEffect(() => {
+    if (!mounted || !isAuthenticated) return;
     if (tab !== "ops") return;
-    if (opsSubTab !== "tariffs") return;
-    void loadTariffs();
+    if (opsSubTab === "tariffs") {
+      void loadTariffs();
+      return;
+    }
+    if (opsSubTab === "readings") {
+      void loadAdminReadings();
+      return;
+    }
+    if (opsSubTab === "tours" || opsSubTab === "field") {
+      void loadAdminToursActivity();
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mounted, isAuthenticated, tab, opsSubTab]);
+
+  useEffect(() => {
+    if (!mounted || !isAuthenticated) return;
+    if (tab !== "ops" || opsSubTab !== "field") return;
+    if (!fieldSelectedTourId) {
+      setFieldTrace(null);
+      return;
+    }
+    void loadFieldTrace(fieldSelectedTourId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mounted, isAuthenticated, tab, opsSubTab, fieldSelectedTourId]);
 
   async function loadCustomers() {
     setCustomersLoading(true);
@@ -777,6 +1032,24 @@ export default function AdminDashboardPage() {
       setCustomersPage(0);
     } finally {
       setCustomersLoading(false);
+    }
+  }
+
+  async function loadMeters() {
+    setMetersLoading(true);
+    try {
+      const params = new URLSearchParams();
+      params.set("limit", "1000");
+      if (metersQuery.trim()) params.set("q", metersQuery.trim());
+      const res = await apiFetch<MeterRow[]>(`/admin/meters?${params.toString()}`, { method: "GET" });
+      if (!res.ok) {
+        setMessage({ type: "error", text: res.error });
+        return;
+      }
+      setMeters(res.data);
+      setMetersPage(0);
+    } finally {
+      setMetersLoading(false);
     }
   }
 
@@ -883,6 +1156,7 @@ export default function AdminDashboardPage() {
       const qs = new URLSearchParams();
       qs.set("delimiter", importDelimiter);
       qs.set("updateExisting", importUpdateExisting ? "true" : "false");
+      if (activeCycle?.cycleId) qs.set("cycleId", activeCycle.cycleId);
 
       const res = await apiFetch<ImportCustomersReport>(`/admin/customers/import?${qs.toString()}`, {
         method: "POST",
@@ -935,16 +1209,38 @@ export default function AdminDashboardPage() {
     setMessage({ type: "ok", text: res.data.isActive ? "Compte activé." : "Compte désactivé." });
   }
 
-  async function resetUserPassword(u: UserRow) {
+  function resetUserPassword(u: UserRow) {
     setMessage(null);
-    const res = await apiFetch<{ temporaryPassword: string }>(`/admin/users/${u._id}/reset-password`, {
+    setResetPasswordUser(u);
+    setResetPasswordValue("");
+  }
+
+  async function submitResetUserPassword() {
+    if (!resetPasswordUser) return;
+    setMessage(null);
+
+    const defaultPassword = resetPasswordValue.trim();
+    if (defaultPassword.length > 0 && defaultPassword.length < 6) {
+      setMessage({ type: "error", text: "Le mot de passe par défaut doit contenir au moins 6 caractères." });
+      return;
+    }
+
+    setResetPasswordBusy(true);
+    const res = await apiFetch<{ temporaryPassword: string }>(`/admin/users/${resetPasswordUser._id}/reset-password`, {
       method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ defaultPassword }),
     });
+
+    setResetPasswordBusy(false);
 
     if (!res.ok) {
       setMessage({ type: "error", text: res.error });
       return;
     }
+
+    setResetPasswordUser(null);
+    setResetPasswordValue("");
 
     setMessage({
       type: "ok",
@@ -1112,6 +1408,10 @@ export default function AdminDashboardPage() {
         title: "Clients",
         subtitle: "Référentiel clients et état d’activation.",
       },
+      meters: {
+        title: "Compteurs",
+        subtitle: "Visualisation des compteurs importés par cycle.",
+      },
       customers: {
         title: "Référentiels",
         subtitle: "Pré-enregistrement, imports, zones et affectations.",
@@ -1137,7 +1437,7 @@ export default function AdminDashboardPage() {
           setTab(key);
           if (key === "users") setUsersSubTab("manage");
           if (key === "customers") setCustomersSubTab("pre");
-          if (key === "ops") setOpsSubTab("invoices");
+          if (key === "ops") setOpsSubTab("readings");
         }}
         className={`flex w-full items-center justify-between rounded-2xl px-4 py-3 text-left text-sm font-semibold transition ${
           active
@@ -1173,6 +1473,7 @@ export default function AdminDashboardPage() {
               {navItem("overview", "Vue d’ensemble")}
               {navItem("users", "Utilisateurs")}
               {navItem("clients", "Clients")}
+              {navItem("meters", "Compteurs")}
               {navItem("customers", "Référentiels")}
               {navItem("ops", "Opérations")}
               {navItem("settings", "Paramétrage")}
@@ -1249,6 +1550,7 @@ export default function AdminDashboardPage() {
 
                   {tab === "ops" ? (
                     <div className="mt-6 flex flex-wrap items-center gap-2">
+                      {subTabButton(opsSubTab === "readings", "Relevés", () => setOpsSubTab("readings"))}
                       {subTabButton(opsSubTab === "invoices", "Factures", () => setOpsSubTab("invoices"))}
                       {subTabButton(opsSubTab === "tariffs", "Tarifs", () => setOpsSubTab("tariffs"))}
                       {subTabButton(opsSubTab === "tours", "Tournées", () => setOpsSubTab("tours"))}
@@ -1405,6 +1707,103 @@ export default function AdminDashboardPage() {
                           type="button"
                           onClick={() => setCustomersPage((p) => Math.min(customersPagesCount - 1, p + 1))}
                           disabled={customersPage >= customersPagesCount - 1}
+                          className={"h-9 " + secondaryButtonSmClassName}
+                        >
+                          Suivant
+                        </button>
+                      </div>
+                    </div>
+                  ) : null}
+                </section>
+              </div>
+            ) : null}
+
+            {tab === "meters" ? (
+              <div className="grid gap-6">
+                <section className={cardClassName}>
+                  {sectionHeader(
+                    "Compteurs",
+                    "Compteurs importés pour le cycle actif. Recherche par numéro compteur, abonné ou police.",
+                    <button
+                      type="button"
+                      onClick={() => void loadMeters()}
+                      className={"h-10 " + primaryButtonSmClassName}
+                      disabled={metersLoading}
+                    >
+                      {metersLoading ? "Actualisation…" : "Actualiser"}
+                    </button>,
+                  )}
+
+                  <div className="mt-5 grid gap-3 sm:grid-cols-3">
+                    <input
+                      className={inputClassName}
+                      placeholder="Rechercher compteur / abonné / police"
+                      value={metersQuery}
+                      onChange={(e) => setMetersQuery(e.target.value)}
+                    />
+                    <div className="sm:col-span-2">
+                      <button
+                        type="button"
+                        onClick={() => void loadMeters()}
+                        className={"h-12 " + secondaryButtonClassName}
+                        disabled={metersLoading}
+                      >
+                        Appliquer filtres
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className={"mt-5 " + tableCardClassName}>
+                    <div className="grid grid-cols-12 gap-2 bg-zinc-50 px-4 py-3 text-xs font-semibold text-zinc-600 dark:bg-white/5 dark:text-zinc-300">
+                      <div className="col-span-2">Compteur</div>
+                      <div className="col-span-2">Abonné</div>
+                      <div className="col-span-2">Police</div>
+                      <div className="col-span-3">Zone</div>
+                      <div className="col-span-1">Ordre</div>
+                      <div className="col-span-2">Cycle</div>
+                    </div>
+
+                    {metersLoading ? (
+                      <div className="px-4 py-4 text-sm text-zinc-700 dark:text-zinc-200">Chargement…</div>
+                    ) : filteredMeters.length === 0 ? (
+                      <div className="px-4 py-4 text-sm text-zinc-700 dark:text-zinc-200">Aucun compteur.</div>
+                    ) : (
+                      <div className="divide-y divide-zinc-200 dark:divide-white/10">
+                        {pagedMeters.map((m) => (
+                          <div key={m._id} className="grid grid-cols-12 gap-2 px-4 py-3 text-sm">
+                            <div className="col-span-2 font-medium">{m.meterNumber}</div>
+                            <div className="col-span-2 text-zinc-700 dark:text-zinc-200">{m.subscriberNumber ?? "-"}</div>
+                            <div className="col-span-2 text-zinc-700 dark:text-zinc-200">{m.police ?? "-"}</div>
+                            <div className="col-span-3 text-xs text-zinc-600 dark:text-zinc-300">
+                              {(m.center ?? "-") + " / " + (m.zone ?? "-") + " / " + (m.sector ?? "-")}
+                            </div>
+                            <div className="col-span-1 text-zinc-700 dark:text-zinc-200">{m.routeOrder ?? "-"}</div>
+                            <div className="col-span-2 text-zinc-700 dark:text-zinc-200">{m.cycleId ?? "-"}</div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  {!metersLoading && filteredMeters.length > 0 ? (
+                    <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
+                      <div className="text-xs font-semibold text-zinc-500 dark:text-zinc-400">{metersRangeText}</div>
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setMetersPage((p) => Math.max(0, p - 1))}
+                          disabled={metersPage === 0}
+                          className={"h-9 " + secondaryButtonSmClassName}
+                        >
+                          Précédent
+                        </button>
+                        <div className="text-xs font-semibold text-zinc-500 dark:text-zinc-400">
+                          Page {metersPage + 1}/{metersPagesCount}
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setMetersPage((p) => Math.min(metersPagesCount - 1, p + 1))}
+                          disabled={metersPage >= metersPagesCount - 1}
                           className={"h-9 " + secondaryButtonSmClassName}
                         >
                           Suivant
@@ -1816,6 +2215,28 @@ export default function AdminDashboardPage() {
                 </div>
               ) : customersSubTab === "imports" ? (
                 <div className="grid gap-6 lg:grid-cols-2">
+                  <section className={cardClassName + " lg:col-span-2"}>
+                    {sectionHeader(
+                      "Cycle de facturation actif",
+                      "Ce cycle sera utilise pour l'import clients et compteurs.",
+                      <button type="button" onClick={() => void loadActiveCycle()} className={"h-10 " + secondaryButtonSmClassName} disabled={activeCycleLoading}>
+                        {activeCycleLoading ? "Actualisation..." : "Actualiser"}
+                      </button>,
+                    )}
+                    <div className={"mt-5 " + cardSoftClassName + " text-sm text-zinc-700 dark:text-zinc-200"}>
+                      {activeCycle ? (
+                        <div className="flex flex-wrap items-center gap-3">
+                          <span className="rounded-full bg-emerald-100 px-3 py-1 text-xs font-semibold text-emerald-700 dark:bg-emerald-900/50 dark:text-emerald-200">
+                            Cycle: {activeCycle.cycleId}
+                          </span>
+                          <span className="text-xs text-zinc-500 dark:text-zinc-400">Statut: {activeCycle.status}</span>
+                        </div>
+                      ) : (
+                        <div className="text-xs text-zinc-500 dark:text-zinc-400">Cycle actif indisponible.</div>
+                      )}
+                    </div>
+                  </section>
+
                   <section className={cardClassName}>
                     {sectionHeader(
                       "Importer clients (CSV)",
@@ -2051,7 +2472,100 @@ export default function AdminDashboardPage() {
             ) : null}
 
             {tab === "ops" ? (
-              opsSubTab === "invoices" ? (
+              opsSubTab === "readings" ? (
+                <div className="grid gap-6">
+                  <section className={cardClassName}>
+                    {sectionHeader(
+                      "Relevés",
+                      "Visualisation des relevés du cycle actif (agents et clients).",
+                      <button
+                        type="button"
+                        onClick={() => void loadAdminReadings()}
+                        className={"h-10 " + secondaryButtonSmClassName}
+                        disabled={adminReadingsLoading}
+                      >
+                        {adminReadingsLoading ? "Actualisation…" : "Rafraîchir"}
+                      </button>,
+                    )}
+
+                    <div className="mt-5 grid gap-3 sm:grid-cols-3">
+                      <input
+                        className={inputClassName}
+                        type="date"
+                        value={adminReadingsDate}
+                        onChange={(e) => setAdminReadingsDate(e.target.value)}
+                      />
+                      <select
+                        className={inputClassName}
+                        value={adminReadingsCorrectionFilter}
+                        onChange={(e) =>
+                          setAdminReadingsCorrectionFilter(
+                            e.target.value as "ALL" | "PENDING_SUPERVISOR" | "APPROVED" | "REJECTED" | "NONE",
+                          )
+                        }
+                      >
+                        <option value="ALL">Toutes corrections</option>
+                        <option value="PENDING_SUPERVISOR">En attente</option>
+                        <option value="APPROVED">Validées</option>
+                        <option value="REJECTED">Rejetées</option>
+                        <option value="NONE">Sans correction</option>
+                      </select>
+                      <button type="button" onClick={() => void loadAdminReadings()} className={"h-12 " + primaryButtonClassName}>
+                        Appliquer
+                      </button>
+                    </div>
+
+                    <div className={"mt-5 overflow-x-auto " + tableCardClassName}>
+                      <table className="w-full text-sm">
+                        <thead className="bg-zinc-50 text-left text-xs text-zinc-500 dark:bg-white/5 dark:text-zinc-400">
+                          <tr>
+                            <th className="px-4 py-3 font-semibold">Date</th>
+                            <th className="px-4 py-3 font-semibold">Compteur</th>
+                            <th className="px-4 py-3 font-semibold">Source</th>
+                            <th className="px-4 py-3 font-semibold">Agent</th>
+                            <th className="px-4 py-3 font-semibold">Ancien</th>
+                            <th className="px-4 py-3 font-semibold">Nouveau</th>
+                            <th className="px-4 py-3 font-semibold">Conso</th>
+                            <th className="px-4 py-3 font-semibold">Montant</th>
+                            <th className="px-4 py-3 font-semibold">Correction</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-zinc-200 bg-white/70 dark:divide-white/10 dark:bg-black/30">
+                          {adminReadings.length > 0 ? (
+                            adminReadings.map((r) => (
+                              <tr key={r._id}>
+                                <td className="px-4 py-3">{r.date}</td>
+                                <td className="px-4 py-3 font-semibold">{r.meterNumber}</td>
+                                <td className="px-4 py-3">{r.source ?? "AGENT"}</td>
+                                <td className="px-4 py-3">{r.agentId ?? "—"}</td>
+                                <td className="px-4 py-3">{r.oldIndex ?? "—"}</td>
+                                <td className="px-4 py-3">{r.newIndex}</td>
+                                <td className="px-4 py-3">{r.consumption ?? "—"}</td>
+                                <td className="px-4 py-3">{r.amount != null ? `${r.amount} FCFA` : "—"}</td>
+                                <td className="px-4 py-3 text-xs">
+                                  <div className="font-semibold">{r.correctionStatus ?? "NONE"}</div>
+                                  {r.correctionStatus === "PENDING_SUPERVISOR" ? (
+                                    <div className="mt-1 text-zinc-600 dark:text-zinc-300">
+                                      Proposé: {r.correctionProposedIndex ?? "—"}
+                                      {r.correctionReason ? ` · ${r.correctionReason}` : ""}
+                                    </div>
+                                  ) : null}
+                                </td>
+                              </tr>
+                            ))
+                          ) : (
+                            <tr>
+                              <td className="px-4 py-3" colSpan={9}>
+                                {adminReadingsLoading ? "Chargement…" : "Aucun relevé."}
+                              </td>
+                            </tr>
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  </section>
+                </div>
+              ) : opsSubTab === "invoices" ? (
                 <div className="grid gap-6">
                   <section className={cardClassName}>
                     {sectionHeader(
@@ -2110,7 +2624,7 @@ export default function AdminDashboardPage() {
                   <section className={cardClassName}>
                     {sectionHeader(
                       "Tarifs (kWh)",
-                      "Configurer des tranches de consommation (T1/T2/T3) et calculer le montant comme T1+T2+T3.",
+                      "Configurer des tranches de consommation (T1/T2/T3). Le total facture applique aussi TVA 19% + taxe fixe 7000 + charge fixe 1500.",
                       <button
                         key="reload"
                         type="button"
@@ -2123,6 +2637,21 @@ export default function AdminDashboardPage() {
                     )}
 
                     <div className="mt-5 grid gap-3">
+                      <div className="grid gap-3 sm:grid-cols-3">
+                        <div className={cardSoftClassName}>
+                          <div className="text-xs font-semibold text-zinc-500 dark:text-zinc-400">TVA</div>
+                          <div className="mt-1 text-lg font-semibold">19%</div>
+                        </div>
+                        <div className={cardSoftClassName}>
+                          <div className="text-xs font-semibold text-zinc-500 dark:text-zinc-400">Taxe fixe</div>
+                          <div className="mt-1 text-lg font-semibold">7 000 FCFA</div>
+                        </div>
+                        <div className={cardSoftClassName}>
+                          <div className="text-xs font-semibold text-zinc-500 dark:text-zinc-400">Charge fixe 2</div>
+                          <div className="mt-1 text-lg font-semibold">1 500 FCFA</div>
+                        </div>
+                      </div>
+
                       {tariffs.length === 0 ? (
                         <div className={"rounded-2xl border border-zinc-200 bg-white/70 p-4 text-sm shadow-sm dark:border-white/10 dark:bg-black/30"}>
                           Aucun tarif chargé.
@@ -2216,25 +2745,178 @@ export default function AdminDashboardPage() {
               ) : opsSubTab === "tours" ? (
                 <div className="grid gap-6">
                   <section className={cardClassName}>
-                    {sectionHeader("Tournées", "Créer / assigner des tournées (MVP léger): à venir.")}
-                    <div className={"mt-5 " + cardSoftClassName + " text-sm text-zinc-700 dark:text-zinc-200"}>
-                      Prochain écran: création tournée + assignation agents.
+                    {sectionHeader(
+                      "Tournées",
+                      "Activité des tournées par centre / zone / secteur.",
+                      <button
+                        type="button"
+                        onClick={() => void loadAdminToursActivity()}
+                        className={"h-10 " + secondaryButtonSmClassName}
+                        disabled={adminToursLoading}
+                      >
+                        {adminToursLoading ? "Actualisation…" : "Rafraîchir"}
+                      </button>,
+                    )}
+
+                    <div className="mt-5 grid gap-3 sm:grid-cols-5">
+                      <input className={inputClassName} type="date" value={adminToursDate} onChange={(e) => setAdminToursDate(e.target.value)} />
+                      <input className={inputClassName} placeholder="Centre" value={adminToursCenter} onChange={(e) => setAdminToursCenter(e.target.value)} />
+                      <input className={inputClassName} placeholder="Zone" value={adminToursZone} onChange={(e) => setAdminToursZone(e.target.value)} />
+                      <input className={inputClassName} placeholder="Secteur" value={adminToursSector} onChange={(e) => setAdminToursSector(e.target.value)} />
+                      <button type="button" onClick={() => void loadAdminToursActivity()} className={"h-12 " + primaryButtonClassName}>
+                        Appliquer
+                      </button>
+                    </div>
+
+                    <div className={"mt-5 overflow-x-auto " + tableCardClassName}>
+                      <table className="w-full text-sm">
+                        <thead className="bg-zinc-50 text-left text-xs text-zinc-500 dark:bg-white/5 dark:text-zinc-400">
+                          <tr>
+                            <th className="px-4 py-3 font-semibold">Date</th>
+                            <th className="px-4 py-3 font-semibold">Centre</th>
+                            <th className="px-4 py-3 font-semibold">Zone</th>
+                            <th className="px-4 py-3 font-semibold">Secteur</th>
+                            <th className="px-4 py-3 font-semibold">Agent</th>
+                            <th className="px-4 py-3 font-semibold">Activité</th>
+                            <th className="px-4 py-3 font-semibold">Statut</th>
+                            <th className="px-4 py-3 font-semibold">Dernier relevé</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-zinc-200 bg-white/70 dark:divide-white/10 dark:bg-black/30">
+                          {adminTours.length > 0 ? (
+                            adminTours.map((t) => (
+                              <tr key={t._id}>
+                                <td className="px-4 py-3">{t.date ?? "—"}</td>
+                                <td className="px-4 py-3">{t.center ?? "—"}</td>
+                                <td className="px-4 py-3">{t.zone ?? "—"}</td>
+                                <td className="px-4 py-3">{t.sector ?? "—"}</td>
+                                <td className="px-4 py-3">
+                                  <div className="font-semibold">{t.agentName ?? t.agentId ?? "—"}</div>
+                                  <div className="text-xs text-zinc-500 dark:text-zinc-400">{t.agentPhone ?? ""}</div>
+                                </td>
+                                <td className="px-4 py-3 font-semibold">{t.readMeters}/{t.totalMeters}</td>
+                                <td className="px-4 py-3">{t.activityStatus}</td>
+                                <td className="px-4 py-3 text-xs text-zinc-600 dark:text-zinc-300">
+                                  {t.lastReadingAt ? String(t.lastReadingAt).slice(0, 19).replace("T", " ") : "—"}
+                                </td>
+                              </tr>
+                            ))
+                          ) : (
+                            <tr>
+                              <td className="px-4 py-3" colSpan={8}>
+                                {adminToursLoading ? "Chargement…" : "Aucune tournée."}
+                              </td>
+                            </tr>
+                          )}
+                        </tbody>
+                      </table>
                     </div>
                   </section>
                 </div>
               ) : (
                 <div className="grid gap-6">
                   <section className={cardClassName}>
-                    {sectionHeader("Suivi terrain", "Agents bloqués, backlog offline, uploads photo en échec: à venir.")}
-                    <div className="mt-5 grid gap-3 sm:grid-cols-2">
-                      <div className="rounded-2xl border border-zinc-200 bg-white/70 p-4 shadow-sm dark:border-white/10 dark:bg-black/30">
-                        <div className="text-xs font-semibold text-zinc-500 dark:text-zinc-400">Uploads photo en échec</div>
-                        <div className="mt-2 text-xl font-semibold">—</div>
-                      </div>
-                      <div className="rounded-2xl border border-zinc-200 bg-white/70 p-4 shadow-sm dark:border-white/10 dark:bg-black/30">
-                        <div className="text-xs font-semibold text-zinc-500 dark:text-zinc-400">Backlog offline</div>
-                        <div className="mt-2 text-xl font-semibold">—</div>
-                      </div>
+                    {sectionHeader("Suivi terrain", "Tracé GPS de la tournée basé sur les relevés effectués.")}
+
+                    <div className="mt-5 grid gap-3 sm:grid-cols-3">
+                      <select
+                        className={inputClassName}
+                        value={fieldSelectedTourId}
+                        onChange={(e) => setFieldSelectedTourId(e.target.value)}
+                      >
+                        <option value="">Sélectionner une tournée…</option>
+                        {adminTours.map((t) => (
+                          <option key={t._id} value={t._id}>
+                            {(t.date ?? "-") + " | " + (t.center ?? "-") + "/" + (t.zone ?? "-") + "/" + (t.sector ?? "-")}
+                          </option>
+                        ))}
+                      </select>
+                      <button type="button" onClick={() => void loadAdminToursActivity()} className={"h-12 " + secondaryButtonClassName}>
+                        Rafraîchir tournées
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => void loadFieldTrace(fieldSelectedTourId)}
+                        disabled={!fieldSelectedTourId || fieldTraceLoading}
+                        className={"h-12 " + primaryButtonClassName}
+                      >
+                        {fieldTraceLoading ? "Chargement…" : "Charger tracé"}
+                      </button>
+                    </div>
+
+                    <div className={"mt-5 " + cardSoftClassName}>
+                      {!fieldSelectedTourId ? (
+                        <div className="text-sm text-zinc-600 dark:text-zinc-300">Sélectionnez une tournée pour afficher le tracé.</div>
+                      ) : !fieldTrace || fieldTrace.points.length === 0 ? (
+                        <div className="text-sm text-zinc-600 dark:text-zinc-300">
+                          {fieldTraceLoading ? "Chargement du tracé…" : "Aucun point GPS disponible pour cette tournée."}
+                        </div>
+                      ) : (
+                        <div className="space-y-4">
+                          {(() => {
+                            const pts = fieldTrace.points;
+                            const width = 960;
+                            const height = 320;
+                            const pad = 28;
+                            const lats = pts.map((p) => p.lat);
+                            const lngs = pts.map((p) => p.lng);
+                            const minLat = Math.min(...lats);
+                            const maxLat = Math.max(...lats);
+                            const minLng = Math.min(...lngs);
+                            const maxLng = Math.max(...lngs);
+                            const dLat = maxLat - minLat || 0.0001;
+                            const dLng = maxLng - minLng || 0.0001;
+                            const scaled = pts.map((p) => {
+                              const x = pad + ((p.lng - minLng) / dLng) * (width - pad * 2);
+                              const y = height - pad - ((p.lat - minLat) / dLat) * (height - pad * 2);
+                              return { ...p, x, y };
+                            });
+                            return (
+                              <svg viewBox={`0 0 ${width} ${height}`} className="w-full rounded-2xl border border-zinc-200 bg-white dark:border-white/10 dark:bg-black/30">
+                                <polyline
+                                  fill="none"
+                                  stroke="#dc2626"
+                                  strokeWidth="2.5"
+                                  points={scaled.map((p) => `${p.x},${p.y}`).join(" ")}
+                                />
+                                {scaled.map((p, idx) => (
+                                  <g key={`${p.meterNumber ?? "pt"}-${idx}`}>
+                                    <circle cx={p.x} cy={p.y} r={4} fill="#111827" />
+                                    <text x={p.x + 6} y={p.y - 6} fontSize="10" fill="#374151">
+                                      {idx + 1}
+                                    </text>
+                                  </g>
+                                ))}
+                              </svg>
+                            );
+                          })()}
+
+                          <div className={tableCardClassName}>
+                            <table className="w-full text-xs">
+                              <thead className="bg-zinc-50 text-left text-zinc-500 dark:bg-white/5 dark:text-zinc-400">
+                                <tr>
+                                  <th className="px-3 py-2 font-semibold">#</th>
+                                  <th className="px-3 py-2 font-semibold">Compteur</th>
+                                  <th className="px-3 py-2 font-semibold">Latitude</th>
+                                  <th className="px-3 py-2 font-semibold">Longitude</th>
+                                  <th className="px-3 py-2 font-semibold">Date/Heure</th>
+                                </tr>
+                              </thead>
+                              <tbody className="divide-y divide-zinc-200 bg-white/70 dark:divide-white/10 dark:bg-black/30">
+                                {fieldTrace.points.map((p, idx) => (
+                                  <tr key={`${p.meterNumber ?? "pt"}-${idx}`}>
+                                    <td className="px-3 py-2">{idx + 1}</td>
+                                    <td className="px-3 py-2 font-semibold">{p.meterNumber ?? "—"}</td>
+                                    <td className="px-3 py-2">{p.lat.toFixed(6)}</td>
+                                    <td className="px-3 py-2">{p.lng.toFixed(6)}</td>
+                                    <td className="px-3 py-2">{p.recordedAt ? String(p.recordedAt).slice(0, 19).replace("T", " ") : "—"}</td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        </div>
+                      )}
                     </div>
                   </section>
                 </div>
@@ -2402,6 +3084,65 @@ export default function AdminDashboardPage() {
                     </button>
                   </div>
                 </section>
+              </div>
+            ) : null}
+
+            {resetPasswordUser ? (
+              <div className="fixed inset-0 z-50 flex items-center justify-center bg-zinc-950/45 p-4 backdrop-blur-sm">
+                <div className="w-full max-w-md rounded-2xl border border-zinc-200 bg-white p-5 shadow-xl dark:border-white/10 dark:bg-zinc-900">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <div className="text-base font-semibold">Reset mot de passe</div>
+                      <div className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">{resetPasswordUser.phone}</div>
+                    </div>
+                    <button
+                      type="button"
+                      disabled={resetPasswordBusy}
+                      onClick={() => {
+                        setResetPasswordUser(null);
+                        setResetPasswordValue("");
+                      }}
+                      className="rounded-lg px-2 py-1 text-sm font-semibold text-zinc-500 transition hover:bg-zinc-100 hover:text-zinc-800 disabled:opacity-50 dark:text-zinc-300 dark:hover:bg-white/10 dark:hover:text-white"
+                    >
+                      ✕
+                    </button>
+                  </div>
+
+                  <div className="mt-4 space-y-2">
+                    <label className="text-sm font-medium">Mot de passe par défaut (optionnel)</label>
+                    <input
+                      className={inputClassName}
+                      value={resetPasswordValue}
+                      onChange={(e) => setResetPasswordValue(e.target.value)}
+                      placeholder="Laisser vide pour génération automatique"
+                    />
+                    <div className="text-xs text-zinc-500 dark:text-zinc-400">
+                      Si vous laissez vide, le système génère automatiquement un mot de passe temporaire.
+                    </div>
+                  </div>
+
+                  <div className="mt-5 flex justify-end gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setResetPasswordUser(null);
+                        setResetPasswordValue("");
+                      }}
+                      disabled={resetPasswordBusy}
+                      className={secondaryButtonSmClassName}
+                    >
+                      Annuler
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void submitResetUserPassword()}
+                      disabled={resetPasswordBusy}
+                      className={primaryButtonSmClassName}
+                    >
+                      {resetPasswordBusy ? "Reset..." : "Confirmer le reset"}
+                    </button>
+                  </div>
+                </div>
               </div>
             ) : null}
 

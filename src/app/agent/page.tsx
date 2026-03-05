@@ -138,6 +138,8 @@ type TourMeterItem = {
   meterNumber: string;
   routeOrder?: number | null;
   oldIndex?: number | null;
+  selfSubmittedByCustomer?: boolean;
+  selfSubmittedAt?: string | null;
 };
 
 type TourPublic = {
@@ -151,6 +153,8 @@ type TourPublic = {
   createdAt: string;
   updatedAt: string;
 };
+
+type CorrectionStatus = "NONE" | "PENDING_SUPERVISOR" | "APPROVED" | "REJECTED";
 
 type AgentReadingSummaryItem = {
   tourId: string;
@@ -168,6 +172,8 @@ type ReadingRow = {
   newIndex: number;
   consumption?: number | null;
   tariffCode?: string | null;
+  source?: "AGENT" | "CUSTOMER" | null;
+  correctionStatus?: "NONE" | "PENDING_SUPERVISOR" | "APPROVED" | "REJECTED" | null;
   createdAt: string;
   updatedAt: string;
 };
@@ -221,12 +227,15 @@ export default function AgentDashboardPage() {
   const [toursDate, setToursDate] = useState<string>(new Date().toISOString().slice(0, 10));
   const [toursBusy, setToursBusy] = useState(false);
   const [tours, setTours] = useState<TourPublic[]>([]);
+  const [previousToursInfo, setPreviousToursInfo] = useState<string | null>(null);
+  const [previousToursTargetDate, setPreviousToursTargetDate] = useState<string | null>(null);
   const [selectedTourId, setSelectedTourId] = useState<string | null>(null);
   const [selectedMeter, setSelectedMeter] = useState<TourMeterItem | null>(null);
   const [editingReadingId, setEditingReadingId] = useState<string | null>(null);
 
   const [readSummaryBusy, setReadSummaryBusy] = useState(false);
   const [readKeySet, setReadKeySet] = useState<Set<string>>(new Set());
+  const [correctionStatusByKey, setCorrectionStatusByKey] = useState<Record<string, CorrectionStatus>>({});
 
   const [pendingCount, setPendingCount] = useState(0);
   const [syncing, setSyncing] = useState(false);
@@ -242,6 +251,67 @@ export default function AgentDashboardPage() {
       setPendingCount(items.length);
     } catch {
       setPendingCount(0);
+    }
+  }
+
+  async function requestCorrectionForMeter(tourId: string, it: TourMeterItem) {
+    setMessage(null);
+    setBusy(true);
+    try {
+      const params = new URLSearchParams();
+      params.set("tourId", tourId);
+      params.set("meterNumber", it.meterNumber);
+      params.set("limit", "5");
+      const res = await apiFetch<ReadingRow[]>(`/agent/readings?${params.toString()}`, { method: "GET" });
+      if (!res.ok) {
+        setMessage({ type: "error", text: res.error });
+        return;
+      }
+
+      const row = (res.data ?? [])[0];
+      if (!row) {
+        setMessage({ type: "error", text: "Aucun relevé trouvé pour ce compteur." });
+        return;
+      }
+      if ((row.source ?? "AGENT") !== "AGENT") {
+        setMessage({ type: "error", text: "Correction possible uniquement pour les relevés agent." });
+        return;
+      }
+      if (row.correctionStatus === "PENDING_SUPERVISOR") {
+        setMessage({ type: "ok", text: "Une correction est déjà en attente de validation superviseur." });
+        return;
+      }
+
+      const proposedRaw = window.prompt("Nouvel index proposé", String(row.newIndex));
+      if (proposedRaw === null) return;
+      const proposed = Number(proposedRaw.trim());
+      if (!Number.isFinite(proposed) || proposed < 0) {
+        setMessage({ type: "error", text: "Index proposé invalide." });
+        return;
+      }
+
+      const reason = window.prompt("Motif de correction (obligatoire)", "Erreur de saisie d'un chiffre");
+      if (reason === null) return;
+      if (!reason.trim() || reason.trim().length < 3) {
+        setMessage({ type: "error", text: "Motif de correction trop court." });
+        return;
+      }
+
+      const req = await apiFetch<ReadingRow>(`/agent/readings/${row._id}/correction-request`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ proposedNewIndex: proposed, reason: reason.trim() }),
+      });
+      if (!req.ok) {
+        setMessage({ type: "error", text: req.error });
+        return;
+      }
+
+      setMessage({ type: "ok", text: "Demande de correction envoyée au superviseur pour validation." });
+      void loadReadSummary();
+      void loadRecentHistory();
+    } finally {
+      setBusy(false);
     }
   }
 
@@ -311,11 +381,12 @@ export default function AgentDashboardPage() {
     }
   }
 
-  async function loadTours() {
+  async function loadTours(dateOverride?: string) {
     setToursBusy(true);
     try {
+      const effectiveDate = (dateOverride ?? toursDate).trim();
       const params = new URLSearchParams();
-      if (toursDate) params.set("date", toursDate);
+      if (effectiveDate) params.set("date", effectiveDate);
       params.set("limit", "200");
       const qs = params.toString();
       const res = await apiFetch<TourPublic[]>(`/agent/tours${qs ? `?${qs}` : ""}`, { method: "GET" });
@@ -324,6 +395,12 @@ export default function AgentDashboardPage() {
         return;
       }
       setTours(res.data);
+      if ((res.data ?? []).length === 0) {
+        await loadPreviousToursInfo(effectiveDate);
+      } else {
+        setPreviousToursInfo(null);
+        setPreviousToursTargetDate(null);
+      }
       if (res.data.length === 1) {
         setSelectedTourId(res.data[0]._id);
       }
@@ -332,11 +409,59 @@ export default function AgentDashboardPage() {
     }
   }
 
-  async function loadReadSummary() {
+  async function loadPreviousToursInfo(currentDate: string) {
+    const [allToursRes, allSummaryRes] = await Promise.all([
+      apiFetch<TourPublic[]>("/agent/tours?limit=200", { method: "GET" }),
+      apiFetch<AgentReadingSummaryItem[]>("/agent/readings/summary?limit=20000", { method: "GET" }),
+    ]);
+
+    if (!allToursRes.ok || !allSummaryRes.ok) {
+      setPreviousToursInfo(null);
+      setPreviousToursTargetDate(null);
+      return;
+    }
+
+    const previousTours = (allToursRes.data ?? []).filter((t) => typeof t.date === "string" && t.date < currentDate);
+    if (previousTours.length === 0) {
+      setPreviousToursInfo("Aucune tournée antérieure.");
+      setPreviousToursTargetDate(null);
+      return;
+    }
+
+    const readSet = new Set<string>();
+    for (const it of allSummaryRes.data ?? []) {
+      readSet.add(`${it.tourId}::${it.meterNumber}`);
+    }
+
+    let openCount = 0;
+    let closedCount = 0;
+    let latestDate = "";
+    let latestOpenDate = "";
+
+    for (const t of previousTours) {
+      if (!latestDate || t.date > latestDate) latestDate = t.date;
+      const total = (t.items ?? []).length;
+      const handled = (t.items ?? []).reduce((acc, it) => {
+        const done = readSet.has(`${t._id}::${it.meterNumber}`) || Boolean(it.selfSubmittedByCustomer);
+        return acc + (done ? 1 : 0);
+      }, 0);
+      if (total > 0 && handled >= total) closedCount += 1;
+      else {
+        openCount += 1;
+        if (!latestOpenDate || t.date > latestOpenDate) latestOpenDate = t.date;
+      }
+    }
+
+    setPreviousToursInfo(`Tournées antérieures: ${openCount} en cours, ${closedCount} clôturées (dernière date: ${latestDate}).`);
+    setPreviousToursTargetDate(latestOpenDate || latestDate || null);
+  }
+
+  async function loadReadSummary(dateOverride?: string) {
     setReadSummaryBusy(true);
     try {
+      const effectiveDate = (dateOverride ?? toursDate).trim();
       const params = new URLSearchParams();
-      if (toursDate) params.set("date", toursDate);
+      if (effectiveDate) params.set("date", effectiveDate);
       params.set("limit", "20000");
       const qs = params.toString();
       const res = await apiFetch<AgentReadingSummaryItem[]>(`/agent/readings/summary${qs ? `?${qs}` : ""}`, {
@@ -344,6 +469,7 @@ export default function AgentDashboardPage() {
       });
       if (!res.ok) {
         setReadKeySet(new Set());
+        setCorrectionStatusByKey({});
         return;
       }
       const s = new Set<string>();
@@ -351,6 +477,24 @@ export default function AgentDashboardPage() {
         s.add(`${it.tourId}::${it.meterNumber}`);
       }
       setReadKeySet(s);
+
+      const readingsParams = new URLSearchParams();
+      if (effectiveDate) readingsParams.set("date", effectiveDate);
+      readingsParams.set("limit", "1000");
+      const readingsRes = await apiFetch<ReadingRow[]>(`/agent/readings?${readingsParams.toString()}`, {
+        method: "GET",
+      });
+      if (!readingsRes.ok) {
+        setCorrectionStatusByKey({});
+        return;
+      }
+
+      const statusMap: Record<string, CorrectionStatus> = {};
+      for (const row of readingsRes.data ?? []) {
+        const k = `${row.tourId}::${row.meterNumber}`;
+        statusMap[k] = row.correctionStatus ?? "NONE";
+      }
+      setCorrectionStatusByKey(statusMap);
     } finally {
       setReadSummaryBusy(false);
     }
@@ -358,6 +502,15 @@ export default function AgentDashboardPage() {
 
   function isMeterRead(tourId: string, meterNumber: string): boolean {
     return readKeySet.has(`${tourId}::${meterNumber}`);
+  }
+
+  function isMeterHandled(tourId: string, item: TourMeterItem): boolean {
+    if (isMeterRead(tourId, item.meterNumber)) return true;
+    return Boolean(item.selfSubmittedByCustomer);
+  }
+
+  function getCorrectionStatus(tourId: string, meterNumber: string): CorrectionStatus {
+    return correctionStatusByKey[`${tourId}::${meterNumber}`] ?? "NONE";
   }
 
   useEffect(() => {
@@ -863,8 +1016,31 @@ export default function AgentDashboardPage() {
               {toursBusy ? (
                 <div className="mt-4 text-sm text-zinc-600 dark:text-zinc-300">Chargement…</div>
               ) : tours.length === 0 ? (
-                <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900 dark:border-amber-500/20 dark:bg-amber-500/10 dark:text-amber-200">
-                  Aucune tournée trouvée pour cette date.
+                <div className="mt-4 space-y-2">
+                  <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900 dark:border-amber-500/20 dark:bg-amber-500/10 dark:text-amber-200">
+                    Aucune tournée trouvée pour cette date.
+                  </div>
+                  {previousToursInfo ? (
+                    <div className="rounded-2xl border border-zinc-200 bg-white/70 p-3 text-xs text-zinc-700 dark:border-white/10 dark:bg-black/30 dark:text-zinc-200">
+                      <div>{previousToursInfo}</div>
+                      {previousToursTargetDate ? (
+                        <button
+                          type="button"
+                          className="mt-2 inline-flex h-8 items-center justify-center rounded-lg border border-zinc-200 bg-white px-3 text-xs font-semibold text-zinc-900 transition hover:bg-zinc-50 dark:border-white/10 dark:bg-white/5 dark:text-white dark:hover:bg-white/10"
+                          onClick={() => {
+                            const targetDate = previousToursTargetDate;
+                            setToursDate(targetDate);
+                            void (async () => {
+                              await loadTours(targetDate);
+                              await loadReadSummary(targetDate);
+                            })();
+                          }}
+                        >
+                          Aller à la dernière date utile ({previousToursTargetDate})
+                        </button>
+                      ) : null}
+                    </div>
+                  ) : null}
                 </div>
               ) : (
                 <div className="mt-6 space-y-4">
@@ -873,7 +1049,7 @@ export default function AgentDashboardPage() {
 
                     const total = (t.items ?? []).length;
                     const readCount = (t.items ?? []).reduce(
-                      (acc, it) => acc + (isMeterRead(t._id, it.meterNumber) ? 1 : 0),
+                      (acc, it) => acc + (isMeterHandled(t._id, it) ? 1 : 0),
                       0,
                     );
                     const tourStatus: "done" | "partial" | "todo" =
@@ -933,7 +1109,7 @@ export default function AgentDashboardPage() {
                                 <div
                                   key={`${t._id}-${it.meterNumber}-${idx}`}
                                   className={`grid grid-cols-12 gap-2 px-4 py-3 text-sm ${
-                                    isMeterRead(t._id, it.meterNumber)
+                                    isMeterHandled(t._id, it)
                                       ? "bg-emerald-50/60 dark:bg-emerald-500/10"
                                       : ""
                                   }`}
@@ -947,17 +1123,47 @@ export default function AgentDashboardPage() {
                                           Déjà relevé
                                         </span>
                                       ) : null}
+                                      {!isMeterRead(t._id, it.meterNumber) && it.selfSubmittedByCustomer ? (
+                                        <span className="inline-flex items-center rounded-full bg-sky-600 px-2 py-0.5 text-[11px] font-semibold text-white">
+                                          Envoyé par client
+                                        </span>
+                                      ) : null}
+                                      {isMeterRead(t._id, it.meterNumber) && getCorrectionStatus(t._id, it.meterNumber) === "PENDING_SUPERVISOR" ? (
+                                        <span className="inline-flex items-center rounded-full bg-amber-500 px-2 py-0.5 text-[11px] font-semibold text-white">
+                                          Correction en attente
+                                        </span>
+                                      ) : null}
+                                      {isMeterRead(t._id, it.meterNumber) && getCorrectionStatus(t._id, it.meterNumber) === "APPROVED" ? (
+                                        <span className="inline-flex items-center rounded-full bg-emerald-600 px-2 py-0.5 text-[11px] font-semibold text-white">
+                                          Correction validée
+                                        </span>
+                                      ) : null}
+                                      {isMeterRead(t._id, it.meterNumber) && getCorrectionStatus(t._id, it.meterNumber) === "REJECTED" ? (
+                                        <span className="inline-flex items-center rounded-full bg-rose-600 px-2 py-0.5 text-[11px] font-semibold text-white">
+                                          Correction rejetée
+                                        </span>
+                                      ) : null}
                                     </div>
                                   </div>
                                   <div className="col-span-3 text-right">
                                     {isMeterRead(t._id, it.meterNumber) ? (
-                                      <button
-                                        type="button"
-                                        onClick={() => void startEditReading(t._id, it)}
-                                        className="inline-flex h-9 items-center justify-center rounded-xl border border-emerald-200 bg-white px-3 text-xs font-semibold text-emerald-700 shadow-sm transition hover:bg-emerald-50 dark:border-emerald-500/20 dark:bg-white/5 dark:text-emerald-200 dark:hover:bg-emerald-500/10"
-                                      >
-                                        Modifier
-                                      </button>
+                                      getCorrectionStatus(t._id, it.meterNumber) === "PENDING_SUPERVISOR" ? (
+                                        <span className="inline-flex h-9 items-center justify-center rounded-xl border border-amber-200 bg-amber-50 px-3 text-xs font-semibold text-amber-700 dark:border-amber-500/20 dark:bg-amber-500/10 dark:text-amber-200">
+                                          En attente superviseur
+                                        </span>
+                                      ) : (
+                                        <button
+                                          type="button"
+                                          onClick={() => void requestCorrectionForMeter(t._id, it)}
+                                          className="inline-flex h-9 items-center justify-center rounded-xl border border-emerald-200 bg-emerald-50 px-3 text-xs font-semibold text-emerald-700 transition hover:bg-emerald-100 dark:border-emerald-500/20 dark:bg-emerald-500/10 dark:text-emerald-200 dark:hover:bg-emerald-500/20"
+                                        >
+                                          Corriger
+                                        </button>
+                                      )
+                                    ) : it.selfSubmittedByCustomer ? (
+                                      <span className="inline-flex h-9 items-center justify-center rounded-xl border border-sky-200 bg-sky-50 px-3 text-xs font-semibold text-sky-700 dark:border-sky-500/20 dark:bg-sky-500/10 dark:text-sky-200">
+                                        Tournée évitée
+                                      </span>
                                     ) : (
                                       <button
                                         type="button"
