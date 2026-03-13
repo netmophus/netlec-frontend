@@ -289,7 +289,7 @@ export default function CustomerDashboardPage() {
 
   async function submitSelfReading() {
     if (!selfReadingAvailability?.canSubmit) {
-      setMessage({ type: "error", text: selfReadingAvailability?.reason ?? "Envoi indisponible sans tournée générée." });
+      setMessage({ type: "error", text: selfReadingAvailability?.reason ?? "Envoi non disponible actuellement. Vérifiez qu'un cycle est ouvert." });
       return;
     }
     if (!selfReadingDate.trim()) {
@@ -330,7 +330,16 @@ export default function CustomerDashboardPage() {
         },
       );
       if (!res.ok) {
-        setMessage({ type: "error", text: res.error });
+        if (res.status === 409) {
+          if (res.error.toLowerCase().includes("cycle")) {
+            setMessage({ type: "error", text: "Aucun cycle de facturation ouvert en ce moment. L'envoi du relevé est temporairement indisponible." });
+            setSelfReadingAvailability((prev) => prev ? { ...prev, canSubmit: false, reason: "Aucun cycle ouvert." } : null);
+          } else {
+            setMessage({ type: "error", text: "Vous avez déjà soumis un relevé pour ce cycle." });
+          }
+        } else {
+          setMessage({ type: "error", text: res.error });
+        }
         return;
       }
 
@@ -660,7 +669,11 @@ export default function CustomerDashboardPage() {
 
               {selfReadingAvailability?.canSubmit ? (
                 <div className="mt-3 rounded-xl border border-emerald-200 bg-emerald-50/80 px-3 py-2 text-xs text-emerald-900 dark:border-emerald-500/25 dark:bg-emerald-500/10 dark:text-emerald-200">
-                  Tournée générée pour le {selfReadingAvailability.date}. Vous pouvez envoyer votre relevé maintenant.
+                  Cycle ouvert — vous pouvez envoyer votre relevé dès maintenant.
+                </div>
+              ) : selfReadingAvailability && !selfReadingAvailability.canSubmit ? (
+                <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50/80 px-3 py-2 text-xs text-amber-900 dark:border-amber-500/25 dark:bg-amber-500/10 dark:text-amber-200">
+                  {selfReadingAvailability.reason ?? "Envoi non disponible actuellement."}
                 </div>
               ) : null}
 
@@ -675,10 +688,10 @@ export default function CustomerDashboardPage() {
                   </p>
                   <p className="mt-1 text-xs text-zinc-600 dark:text-zinc-300">
                     {checkingSelfReadingAvailability
-                      ? "Vérification disponibilité tournée..."
+                      ? "Vérification en cours…"
                       : selfReadingAvailability?.canSubmit
-                        ? "Tournée trouvée: envoi autorisé."
-                        : selfReadingAvailability?.reason ?? "Envoi non autorisé pour cette date."}
+                        ? "Cycle ouvert — envoi autorisé."
+                        : selfReadingAvailability?.reason ?? "Envoi non autorisé actuellement."}
                   </p>
 
                   <div className="mt-3 grid gap-2 sm:grid-cols-2">

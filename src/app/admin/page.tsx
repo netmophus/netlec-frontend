@@ -170,8 +170,18 @@ type ImportMetersReport = {
 
 type ActiveCycle = {
   cycleId: string;
-  status: "OPEN" | "CLOSED";
+  status: "DRAFT" | "OPEN" | "CLOSED";
   openedAt?: string | null;
+  closedAt?: string | null;
+  updatedAt?: string | null;
+};
+
+type BillingCycleRow = {
+  cycleId: string;
+  status: "DRAFT" | "OPEN" | "CLOSED";
+  openedAt?: string | null;
+  closedAt?: string | null;
+  createdAt?: string | null;
   updatedAt?: string | null;
 };
 
@@ -338,7 +348,7 @@ const USERS_PAGE_SIZE = 10;
 const CUSTOMERS_PAGE_SIZE = 10;
 const METERS_PAGE_SIZE = 10;
 
-type TabKey = "overview" | "users" | "clients" | "meters" | "customers" | "ops" | "settings";
+type TabKey = "overview" | "cycles" | "users" | "clients" | "meters" | "customers" | "ops" | "settings";
 
 export default function AdminDashboardPage() {
   const inputClassName =
@@ -418,7 +428,7 @@ export default function AdminDashboardPage() {
   const [tab, setTab] = useState<TabKey>("overview");
 
   const [usersSubTab, setUsersSubTab] = useState<"create" | "manage">("manage");
-  const [customersSubTab, setCustomersSubTab] = useState<"pre" | "imports" | "zones" | "assign">("pre");
+  const [customersSubTab, setCustomersSubTab] = useState<"pre" | "imports" | "zones" | "assign">("zones");
   const [opsSubTab, setOpsSubTab] = useState<"readings" | "invoices" | "tariffs" | "tours" | "field">("readings");
   const [portalSettings, setPortalSettings] = useState<PortalSettings>(defaultPortalSettings);
   const [logoFile, setLogoFile] = useState<File | null>(null);
@@ -490,6 +500,16 @@ export default function AdminDashboardPage() {
   const [importMetersReport, setImportMetersReport] = useState<ImportMetersReport | null>(null);
   const [activeCycle, setActiveCycle] = useState<ActiveCycle | null>(null);
   const [activeCycleLoading, setActiveCycleLoading] = useState(false);
+  const [cycleActionBusy, setCycleActionBusy] = useState<"open" | "close" | null>(null);
+  const [cycleTarget, setCycleTarget] = useState<string>("");
+
+  const [cycles, setCycles] = useState<BillingCycleRow[]>([]);
+  const [cyclesLoading, setCyclesLoading] = useState(false);
+  const [newCycleId, setNewCycleId] = useState<string>(() => {
+    const now = new Date();
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+  });
+  const [createCycleBusy, setCreateCycleBusy] = useState(false);
 
   const [syncInvoicesBusy, setSyncInvoicesBusy] = useState(false);
   const [syncInvoicesGraceDays, setSyncInvoicesGraceDays] = useState(10);
@@ -924,13 +944,98 @@ export default function AdminDashboardPage() {
     setActiveCycleLoading(true);
     try {
       const res = await apiFetch<ActiveCycle>("/admin/cycles/active", { method: "GET" });
+      if (res.ok) {
+        setActiveCycle(res.data);
+        if (res.data?.cycleId) setCycleTarget(res.data.cycleId);
+      } else if (res.status === 404) {
+        setActiveCycle(null);
+      } else {
+        setMessage({ type: "error", text: res.error });
+      }
+    } finally {
+      setActiveCycleLoading(false);
+    }
+  }
+
+  async function loadCycles() {
+    setCyclesLoading(true);
+    try {
+      const res = await apiFetch<BillingCycleRow[]>("/admin/cycles", { method: "GET" });
+      if (!res.ok) {
+        setMessage({ type: "error", text: res.error });
+        return;
+      }
+      setCycles(res.data);
+    } finally {
+      setCyclesLoading(false);
+    }
+  }
+
+  async function createDraftCycle() {
+    setMessage(null);
+    const target = newCycleId.trim();
+    if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(target)) {
+      setMessage({ type: "error", text: "Format invalide. Exemple: 2026-03" });
+      return;
+    }
+    setCreateCycleBusy(true);
+    try {
+      const res = await apiFetch<BillingCycleRow>("/admin/cycles", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ cycleId: target }),
+      });
+      if (!res.ok) {
+        setMessage({ type: "error", text: res.error });
+        return;
+      }
+      setMessage({ type: "ok", text: `Cycle ${res.data.cycleId} créé en brouillon.` });
+      void loadCycles();
+    } finally {
+      setCreateCycleBusy(false);
+    }
+  }
+
+  async function openCycle() {
+    setMessage(null);
+    const target = cycleTarget.trim();
+    if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(target)) {
+      setMessage({ type: "error", text: "Cycle invalide. Format attendu: YYYY-MM." });
+      return;
+    }
+    setCycleActionBusy("open");
+    try {
+      const res = await apiFetch<ActiveCycle>(`/admin/cycles/open?cycleId=${encodeURIComponent(target)}`, { method: "POST" });
       if (!res.ok) {
         setMessage({ type: "error", text: res.error });
         return;
       }
       setActiveCycle(res.data);
+      void loadCycles();
+      setMessage({ type: "ok", text: `Cycle ${res.data.cycleId} ouvert.` });
     } finally {
-      setActiveCycleLoading(false);
+      setCycleActionBusy(null);
+    }
+  }
+
+  async function closeCycle() {
+    setMessage(null);
+    if (!activeCycle?.cycleId) {
+      setMessage({ type: "error", text: "Aucun cycle actif à clôturer." });
+      return;
+    }
+    setCycleActionBusy("close");
+    try {
+      const res = await apiFetch<ActiveCycle>(`/admin/cycles/close?cycleId=${encodeURIComponent(activeCycle.cycleId)}`, { method: "POST" });
+      if (!res.ok) {
+        setMessage({ type: "error", text: res.error });
+        return;
+      }
+      setActiveCycle(res.data);
+      void loadCycles();
+      setMessage({ type: "ok", text: `Cycle ${res.data.cycleId} clôturé.` });
+    } finally {
+      setCycleActionBusy(null);
     }
   }
 
@@ -980,11 +1085,16 @@ export default function AdminDashboardPage() {
 
   useEffect(() => {
     if (!mounted || !isAuthenticated) return;
-    if (tab !== "customers") return;
-    if (customersSubTab !== "imports") return;
     void loadActiveCycle();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mounted, isAuthenticated, tab, customersSubTab]);
+  }, [mounted, isAuthenticated]);
+
+  useEffect(() => {
+    if (!mounted || !isAuthenticated) return;
+    if (tab !== "cycles") return;
+    void loadCycles();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mounted, isAuthenticated, tab]);
 
   useEffect(() => {
     if (!mounted || !isAuthenticated) return;
@@ -1013,6 +1123,17 @@ export default function AdminDashboardPage() {
     void loadFieldTrace(fieldSelectedTourId);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mounted, isAuthenticated, tab, opsSubTab, fieldSelectedTourId]);
+
+  useEffect(() => {
+    if (!message) return;
+    const timeoutMs = message.type === "ok" ? 5000 : 8000;
+    const timer = window.setTimeout(() => setMessage(null), timeoutMs);
+    return () => window.clearTimeout(timer);
+  }, [message]);
+
+  useEffect(() => {
+    setMessage(null);
+  }, [tab, usersSubTab, customersSubTab, opsSubTab]);
 
   async function loadCustomers() {
     setCustomersLoading(true);
@@ -1400,6 +1521,10 @@ export default function AdminDashboardPage() {
         title: "Vue d’ensemble",
         subtitle: "Gardien du système: utilisateurs, référentiels, imports et opérations.",
       },
+      cycles: {
+        title: "Cycles de facturation",
+        subtitle: "Créer, ouvrir et clôturer les cycles. Un seul cycle peut être OPEN à la fois.",
+      },
       users: {
         title: "Utilisateurs",
         subtitle: "Comptes internes, rôles, activation et support terrain.",
@@ -1436,7 +1561,7 @@ export default function AdminDashboardPage() {
         onClick={() => {
           setTab(key);
           if (key === "users") setUsersSubTab("manage");
-          if (key === "customers") setCustomersSubTab("pre");
+          if (key === "customers") setCustomersSubTab("zones");
           if (key === "ops") setOpsSubTab("readings");
         }}
         className={`flex w-full items-center justify-between rounded-2xl px-4 py-3 text-left text-sm font-semibold transition ${
@@ -1471,10 +1596,11 @@ export default function AdminDashboardPage() {
 
             <div className="mt-6 space-y-2">
               {navItem("overview", "Vue d’ensemble")}
+              {navItem("cycles", "Cycles")}
               {navItem("users", "Utilisateurs")}
+              {navItem("customers", "Référentiels")}
               {navItem("clients", "Clients")}
               {navItem("meters", "Compteurs")}
-              {navItem("customers", "Référentiels")}
               {navItem("ops", "Opérations")}
               {navItem("settings", "Paramétrage")}
             </div>
@@ -1529,6 +1655,19 @@ export default function AdminDashboardPage() {
                       <span className="inline-flex items-center rounded-full border border-zinc-200 bg-white/60 px-3 py-1 text-xs font-semibold text-zinc-700 dark:border-white/10 dark:bg-white/5 dark:text-zinc-200">
                         {new Date().toLocaleDateString("fr-FR")}
                       </span>
+                      {activeCycle ? (
+                        <span className="inline-flex items-center rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-800 dark:border-emerald-500/20 dark:bg-emerald-500/10 dark:text-emerald-200">
+                          Cycle ouvert : {activeCycle.cycleId}
+                        </span>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => setTab("cycles")}
+                          className="inline-flex items-center rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-800 hover:bg-amber-100 dark:border-amber-500/20 dark:bg-amber-500/10 dark:text-amber-200 dark:hover:bg-amber-500/20"
+                        >
+                          Aucun cycle ouvert — cliquer pour gérer
+                        </button>
+                      )}
                     </div>
                   </div>
 
@@ -1541,9 +1680,9 @@ export default function AdminDashboardPage() {
 
                   {tab === "customers" ? (
                     <div className="mt-6 flex flex-wrap items-center gap-2">
+                      {subTabButton(customersSubTab === "zones", "Zones", () => setCustomersSubTab("zones"))}
                       {subTabButton(customersSubTab === "pre", "Pré-enregistrement", () => setCustomersSubTab("pre"))}
                       {subTabButton(customersSubTab === "imports", "Imports", () => setCustomersSubTab("imports"))}
-                      {subTabButton(customersSubTab === "zones", "Zones", () => setCustomersSubTab("zones"))}
                       {subTabButton(customersSubTab === "assign", "Affectations", () => setCustomersSubTab("assign"))}
                     </div>
                   ) : null}
@@ -1811,6 +1950,170 @@ export default function AdminDashboardPage() {
                       </div>
                     </div>
                   ) : null}
+                </section>
+              </div>
+            ) : null}
+
+            {tab === "cycles" ? (
+              <div className="space-y-6">
+                <section className={cardClassName}>
+                  {sectionHeader(
+                    "Créer un brouillon",
+                    "Un cycle DRAFT ne permet pas encore les imports ni les tournées. Ouvrez-le ensuite.",
+                  )}
+                  <div className="mt-5 grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto]">
+                    <input
+                      className={inputClassName}
+                      value={newCycleId}
+                      onChange={(e) => setNewCycleId(e.target.value)}
+                      placeholder="YYYY-MM (ex: 2026-03)"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => void createDraftCycle()}
+                      disabled={createCycleBusy}
+                      className={"h-12 " + secondaryButtonSmClassName}
+                    >
+                      {createCycleBusy ? "Création…" : "Créer brouillon"}
+                    </button>
+                  </div>
+                </section>
+
+                <section className={cardClassName}>
+                  {sectionHeader(
+                    "Ouvrir / Clôturer un cycle",
+                    "Un seul cycle peut être OPEN simultanément. Ouvrir un cycle clôture automatiquement l'éventuel cycle OPEN précédent.",
+                    <button
+                      type="button"
+                      onClick={() => { void loadActiveCycle(); void loadCycles(); }}
+                      disabled={activeCycleLoading || cyclesLoading}
+                      className={"h-10 " + secondaryButtonSmClassName}
+                    >
+                      {activeCycleLoading || cyclesLoading ? "Actualisation…" : "Actualiser"}
+                    </button>,
+                  )}
+
+                  {activeCycle ? (
+                    <div className="mt-4 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900 dark:border-emerald-500/20 dark:bg-emerald-500/10 dark:text-emerald-200">
+                      <span className="font-semibold">Cycle ouvert :</span>{" "}
+                      <span className="font-mono">{activeCycle.cycleId}</span>
+                      {activeCycle.openedAt ? (
+                        <span className="ml-2 text-xs opacity-70">
+                          depuis le {new Date(activeCycle.openedAt).toLocaleDateString("fr-FR")}
+                        </span>
+                      ) : null}
+                    </div>
+                  ) : (
+                    <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-500/20 dark:bg-amber-500/10 dark:text-amber-200">
+                      Aucun cycle ouvert actuellement.
+                    </div>
+                  )}
+
+                  <div className="mt-4 grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto_auto]">
+                    <input
+                      className={inputClassName}
+                      value={cycleTarget}
+                      onChange={(e) => setCycleTarget(e.target.value)}
+                      placeholder="YYYY-MM (ex: 2026-03)"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => void openCycle()}
+                      disabled={cycleActionBusy !== null}
+                      className={"h-12 " + secondaryButtonSmClassName}
+                    >
+                      {cycleActionBusy === "open" ? "Ouverture…" : "Ouvrir"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void closeCycle()}
+                      disabled={cycleActionBusy !== null || !activeCycle?.cycleId}
+                      className={"h-12 " + secondaryButtonSmClassName}
+                    >
+                      {cycleActionBusy === "close" ? "Clôture…" : "Clôturer"}
+                    </button>
+                  </div>
+                </section>
+
+                <section className={cardClassName}>
+                  {sectionHeader("Tous les cycles", "Historique DRAFT · OPEN · CLOSED")}
+                  {cyclesLoading ? (
+                    <div className="mt-4 text-sm text-zinc-600 dark:text-zinc-300">Chargement…</div>
+                  ) : cycles.length === 0 ? (
+                    <div className="mt-4 text-sm text-zinc-600 dark:text-zinc-300">Aucun cycle. Créez un brouillon ci-dessus.</div>
+                  ) : (
+                    <div className="mt-4 overflow-hidden rounded-2xl border border-zinc-200 dark:border-white/10">
+                      <div className="grid grid-cols-12 gap-2 bg-zinc-50 px-4 py-3 text-xs font-semibold text-zinc-600 dark:bg-white/5 dark:text-zinc-300">
+                        <div className="col-span-3">Cycle</div>
+                        <div className="col-span-2">Statut</div>
+                        <div className="col-span-3">Ouvert le</div>
+                        <div className="col-span-3">Clôturé le</div>
+                        <div className="col-span-1 text-right">Action</div>
+                      </div>
+                      <div className="divide-y divide-zinc-200 dark:divide-white/10">
+                        {cycles.map((c) => (
+                          <div key={c.cycleId} className="grid grid-cols-12 items-center gap-2 px-4 py-3 text-sm">
+                            <div className="col-span-3 font-mono font-semibold">{c.cycleId}</div>
+                            <div className="col-span-2">
+                              <span className={`inline-flex items-center rounded-full px-2 py-1 text-xs font-semibold ${
+                                c.status === "OPEN"
+                                  ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-200"
+                                  : c.status === "DRAFT"
+                                  ? "bg-zinc-100 text-zinc-700 dark:bg-white/10 dark:text-zinc-300"
+                                  : "bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-300"
+                              }`}>
+                                {c.status}
+                              </span>
+                            </div>
+                            <div className="col-span-3 text-xs text-zinc-500 dark:text-zinc-400">
+                              {c.openedAt ? new Date(c.openedAt).toLocaleDateString("fr-FR") : "—"}
+                            </div>
+                            <div className="col-span-3 text-xs text-zinc-500 dark:text-zinc-400">
+                              {c.closedAt ? new Date(c.closedAt).toLocaleDateString("fr-FR") : "—"}
+                            </div>
+                            <div className="col-span-1 text-right">
+                              {c.status !== "OPEN" ? (
+                                <button
+                                  type="button"
+                                  disabled={cycleActionBusy !== null}
+                                  onClick={() => {
+                                    setCycleTarget(c.cycleId);
+                                    void (async () => {
+                                      setCycleActionBusy("open");
+                                      const res = await apiFetch<ActiveCycle>(
+                                        `/admin/cycles/open?cycleId=${encodeURIComponent(c.cycleId)}`,
+                                        { method: "POST" },
+                                      );
+                                      setCycleActionBusy(null);
+                                      if (res.ok) {
+                                        setActiveCycle(res.data);
+                                        void loadCycles();
+                                        setMessage({ type: "ok", text: `Cycle ${c.cycleId} ouvert.` });
+                                      } else {
+                                        setMessage({ type: "error", text: res.error });
+                                      }
+                                    })();
+                                  }}
+                                  className="text-xs font-semibold text-emerald-700 hover:underline disabled:opacity-40 dark:text-emerald-300"
+                                >
+                                  Ouvrir
+                                </button>
+                              ) : (
+                                <button
+                                  type="button"
+                                  disabled={cycleActionBusy !== null}
+                                  onClick={() => void closeCycle()}
+                                  className="text-xs font-semibold text-rose-700 hover:underline disabled:opacity-40 dark:text-rose-300"
+                                >
+                                  Clôturer
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </section>
               </div>
             ) : null}
@@ -2218,21 +2521,27 @@ export default function AdminDashboardPage() {
                   <section className={cardClassName + " lg:col-span-2"}>
                     {sectionHeader(
                       "Cycle de facturation actif",
-                      "Ce cycle sera utilise pour l'import clients et compteurs.",
-                      <button type="button" onClick={() => void loadActiveCycle()} className={"h-10 " + secondaryButtonSmClassName} disabled={activeCycleLoading}>
-                        {activeCycleLoading ? "Actualisation..." : "Actualiser"}
-                      </button>,
+                      "Le cycle OPEN actuel est utilisé automatiquement pour l'import clients et compteurs.",
                     )}
-                    <div className={"mt-5 " + cardSoftClassName + " text-sm text-zinc-700 dark:text-zinc-200"}>
+                    <div className="mt-4">
                       {activeCycle ? (
-                        <div className="flex flex-wrap items-center gap-3">
-                          <span className="rounded-full bg-emerald-100 px-3 py-1 text-xs font-semibold text-emerald-700 dark:bg-emerald-900/50 dark:text-emerald-200">
-                            Cycle: {activeCycle.cycleId}
-                          </span>
-                          <span className="text-xs text-zinc-500 dark:text-zinc-400">Statut: {activeCycle.status}</span>
+                        <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900 dark:border-emerald-500/20 dark:bg-emerald-500/10 dark:text-emerald-200">
+                          <span className="font-semibold">Cycle ouvert :</span>{" "}
+                          <span className="font-mono">{activeCycle.cycleId}</span>
+                          {activeCycle.openedAt ? (
+                            <span className="ml-2 text-xs opacity-70">
+                              depuis le {new Date(activeCycle.openedAt).toLocaleDateString("fr-FR")}
+                            </span>
+                          ) : null}
                         </div>
                       ) : (
-                        <div className="text-xs text-zinc-500 dark:text-zinc-400">Cycle actif indisponible.</div>
+                        <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-500/20 dark:bg-amber-500/10 dark:text-amber-200">
+                          <span className="font-semibold">Aucun cycle ouvert.</span>{" "}
+                          L'import est bloqué côté serveur.{" "}
+                          <button type="button" onClick={() => setTab("cycles")} className="font-semibold underline">
+                            Gérer les cycles
+                          </button>.
+                        </div>
                       )}
                     </div>
                   </section>

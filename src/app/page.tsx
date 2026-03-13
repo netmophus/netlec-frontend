@@ -48,8 +48,8 @@ const defaultPortalSettings: PortalSettings = {
   linkedinUrl: "https://linkedin.com",
   xUrl: "https://x.com",
   youtubeUrl: "https://youtube.com",
-  supportPhone: "+224 611 00 00 00",
-  supportWhatsapp: "+224611000000",
+  supportPhone: "+227 611 00 00 00",
+  supportWhatsapp: "+227611000000",
   latestAnnouncements: defaultLatestAnnouncements,
 };
 

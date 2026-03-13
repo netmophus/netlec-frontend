@@ -224,7 +224,7 @@ export default function AgentDashboardPage() {
   const [gpsMissing, setGpsMissing] = useState(false);
   const [gpsMissingReason, setGpsMissingReason] = useState("");
 
-  const [toursDate, setToursDate] = useState<string>(new Date().toISOString().slice(0, 10));
+  const [toursDate, setToursDate] = useState<string>("");
   const [toursBusy, setToursBusy] = useState(false);
   const [tours, setTours] = useState<TourPublic[]>([]);
   const [previousToursInfo, setPreviousToursInfo] = useState<string | null>(null);
@@ -326,7 +326,8 @@ export default function AgentDashboardPage() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(it.payload),
         });
-        if (res.ok || res.status === 409) {
+        const isTrueDuplicate = res.status === 409 && !res.error.toLowerCase().includes("cycle");
+        if (res.ok || isTrueDuplicate) {
           await idbDeletePending(it.id);
         }
       }
@@ -384,7 +385,7 @@ export default function AgentDashboardPage() {
   async function loadTours(dateOverride?: string) {
     setToursBusy(true);
     try {
-      const effectiveDate = (dateOverride ?? toursDate).trim();
+      const effectiveDate = (dateOverride ?? toursDate).trim() || new Date().toISOString().slice(0, 10);
       const params = new URLSearchParams();
       if (effectiveDate) params.set("date", effectiveDate);
       params.set("limit", "200");
@@ -395,7 +396,7 @@ export default function AgentDashboardPage() {
         return;
       }
       setTours(res.data);
-      if ((res.data ?? []).length === 0) {
+      if ((res.data ?? []).length === 0 && effectiveDate) {
         await loadPreviousToursInfo(effectiveDate);
       } else {
         setPreviousToursInfo(null);
@@ -459,7 +460,7 @@ export default function AgentDashboardPage() {
   async function loadReadSummary(dateOverride?: string) {
     setReadSummaryBusy(true);
     try {
-      const effectiveDate = (dateOverride ?? toursDate).trim();
+      const effectiveDate = (dateOverride ?? toursDate).trim() || new Date().toISOString().slice(0, 10);
       const params = new URLSearchParams();
       if (effectiveDate) params.set("date", effectiveDate);
       params.set("limit", "20000");
@@ -637,7 +638,8 @@ export default function AgentDashboardPage() {
     setBusy(true);
     try {
       const params = new URLSearchParams();
-      params.set("date", toursDate);
+      const selectedTour = tours.find((tour) => tour._id === tourId);
+      if (selectedTour?.date) params.set("date", selectedTour.date);
       params.set("tourId", tourId);
       params.set("meterNumber", it.meterNumber);
       params.set("limit", "5");
@@ -702,6 +704,8 @@ export default function AgentDashboardPage() {
 
     setBusy(true);
     try {
+      const currentTour = tours.find((tour) => tour._id === selectedTourId);
+      const readingDate = currentTour?.date || toursDate || new Date().toISOString().slice(0, 10);
       const ok = coords ? true : await captureGeolocation();
       if (!ok) {
         setGpsMissing(true);
@@ -709,7 +713,7 @@ export default function AgentDashboardPage() {
 
       const createPayload = {
         tourId: selectedTourId,
-        date: toursDate,
+        date: readingDate,
         meterNumber: form.meterNumber.trim(),
         newIndex,
         gps: coords,
@@ -744,7 +748,7 @@ export default function AgentDashboardPage() {
             createdAt: new Date().toISOString(),
             payload: {
               tourId: selectedTourId,
-              date: toursDate,
+              date: readingDate,
               meterNumber: form.meterNumber.trim(),
               newIndex,
               gps: coords,
@@ -758,8 +762,12 @@ export default function AgentDashboardPage() {
           return;
         }
         if (res.status === 409) {
-          await refreshPendingCount();
-          setMessage({ type: "ok", text: "Relevé déjà présent sur le serveur (sync ok)." });
+          if (res.error.toLowerCase().includes("cycle")) {
+            setMessage({ type: "error", text: "Aucun cycle de facturation ouvert. L'administrateur doit ouvrir un cycle. Votre relevé peut être enregistré localement en attendant." });
+          } else {
+            await refreshPendingCount();
+            setMessage({ type: "ok", text: "Relevé déjà présent sur le serveur (sync ok)." });
+          }
           return;
         }
         setMessage({ type: "error", text: res.error });
@@ -991,18 +999,13 @@ export default function AgentDashboardPage() {
                 </button>
               </div>
 
-              <div className="mt-4 grid gap-3 sm:grid-cols-3">
-                <div className="sm:col-span-1">
-                  <label className="text-sm font-medium">Date</label>
-                  <input className={inputClassName} type="date" value={toursDate} onChange={(e) => setToursDate(e.target.value)} />
-                </div>
-                <div className="sm:col-span-2 flex items-end gap-2">
+              <div className="mt-4 flex items-end gap-2">
                   <button
                     type="button"
                     onClick={() => {
                       void (async () => {
-                        await loadTours();
-                        await loadReadSummary();
+                        await loadTours("");
+                        await loadReadSummary("");
                       })();
                     }}
                     disabled={toursBusy}
@@ -1010,7 +1013,6 @@ export default function AgentDashboardPage() {
                   >
                     {toursBusy ? "Chargement…" : "Charger mes tournées"}
                   </button>
-                </div>
               </div>
 
               {toursBusy ? (
@@ -1018,7 +1020,7 @@ export default function AgentDashboardPage() {
               ) : tours.length === 0 ? (
                 <div className="mt-4 space-y-2">
                   <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900 dark:border-amber-500/20 dark:bg-amber-500/10 dark:text-amber-200">
-                    Aucune tournée trouvée pour cette date.
+                    Aucune tournée trouvée pour ce cycle.
                   </div>
                   {previousToursInfo ? (
                     <div className="rounded-2xl border border-zinc-200 bg-white/70 p-3 text-xs text-zinc-700 dark:border-white/10 dark:bg-black/30 dark:text-zinc-200">

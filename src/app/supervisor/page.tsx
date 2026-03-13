@@ -118,6 +118,13 @@ type GenerateToursResponse = {
   tours: TourRow[];
 };
 
+type ActiveCycle = {
+  cycleId: string;
+  status: "DRAFT" | "OPEN" | "CLOSED";
+  openedAt?: string | null;
+  closedAt?: string | null;
+};
+
 type PortalSettings = {
   logoUrl: string;
 };
@@ -222,7 +229,10 @@ export default function SupervisorDashboardPage() {
 
   const [tab, setTab] = useState<TabKey>("overview");
 
-  const [tourDate, setTourDate] = useState<string>(new Date().toISOString().slice(0, 10));
+  const [activeCycle, setActiveCycle] = useState<ActiveCycle | null>(null);
+  const [activeCycleBusy, setActiveCycleBusy] = useState(false);
+
+  const [tourCycle, setTourCycle] = useState<string>("");
   const [tourMode, setTourMode] = useState<"A" | "B2" | "MANUAL">("A");
   const [tourZoneKey, setTourZoneKey] = useState<string>("");
   const [tourAgentId, setTourAgentId] = useState<string>("");
@@ -233,6 +243,27 @@ export default function SupervisorDashboardPage() {
   const [manualAgentId, setManualAgentId] = useState<string>("");
   const [manualCount, setManualCount] = useState<number>(5);
   const [zoneOptions, setZoneOptions] = useState<ZoneRef[]>([]);
+  const tourCycleDateRef = useMemo(() => (tourCycle ? `${tourCycle}-01` : ""), [tourCycle]);
+  const [selectedTourYear, selectedTourMonth] = useMemo(() => {
+    const [yearRaw, monthRaw] = String(tourCycle || "").split("-");
+    const now = new Date();
+    const year = /^\d{4}$/.test(yearRaw) ? yearRaw : String(now.getFullYear());
+    const month = /^(0[1-9]|1[0-2])$/.test(monthRaw) ? monthRaw : String(now.getMonth() + 1).padStart(2, "0");
+    return [year, month];
+  }, [tourCycle]);
+  const cycleYearOptions = useMemo(() => {
+    const currentYear = new Date().getFullYear();
+    return Array.from({ length: 15 }, (_, idx) => String(currentYear - 5 + idx));
+  }, []);
+  const cycleMonthOptions = useMemo(() => {
+    const formatter = new Intl.DateTimeFormat("fr-FR", { month: "long" });
+    return Array.from({ length: 12 }, (_, idx) => {
+      const value = String(idx + 1).padStart(2, "0");
+      const rawLabel = formatter.format(new Date(2000, idx, 1));
+      const label = rawLabel.charAt(0).toUpperCase() + rawLabel.slice(1);
+      return { value, label };
+    });
+  }, []);
 
   const [tours, setTours] = useState<TourRow[]>([]);
   const [toursListBusy, setToursListBusy] = useState(false);
@@ -287,6 +318,23 @@ export default function SupervisorDashboardPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mounted, token]);
 
+  async function loadActiveCycle() {
+    setActiveCycleBusy(true);
+    try {
+      const res = await apiFetch<ActiveCycle>("/supervisor/cycle/active", { method: "GET" });
+      if (res.ok) {
+        setActiveCycle(res.data);
+        setTourCycle((prev) => prev || res.data.cycleId);
+      } else if (res.status === 404) {
+        setActiveCycle(null);
+      } else {
+        setMessage({ type: "error", text: res.error });
+      }
+    } finally {
+      setActiveCycleBusy(false);
+    }
+  }
+
   async function loadReadings() {
     setReadingsBusy(true);
     try {
@@ -296,7 +344,8 @@ export default function SupervisorDashboardPage() {
       params.set("limit", "500");
       const res = await apiFetch<ReadingRow[]>(`/supervisor/readings?${params.toString()}`, { method: "GET" });
       if (!res.ok) {
-        setMessage({ type: "error", text: res.error });
+        if (res.status !== 409) setMessage({ type: "error", text: res.error });
+        setReadings([]);
         return;
       }
       setReadings(res.data);
@@ -318,7 +367,11 @@ export default function SupervisorDashboardPage() {
       body: JSON.stringify({ approve, note: note.trim() || null }),
     });
     if (!res.ok) {
-      setMessage({ type: "error", text: res.error });
+      if (res.status === 409) {
+        setMessage({ type: "error", text: "Le cycle de ce relevé n'est plus ouvert. Action impossible." });
+      } else {
+        setMessage({ type: "error", text: res.error });
+      }
       return;
     }
     setMessage({ type: "ok", text: approve ? "Correction validée. Facture recalculée." : "Correction rejetée." });
@@ -333,6 +386,7 @@ export default function SupervisorDashboardPage() {
     }
     setMe(res.data);
 
+    void loadActiveCycle();
     void loadAgents();
     void loadCustomers();
     void loadMeters();
@@ -361,12 +415,13 @@ export default function SupervisorDashboardPage() {
     setToursListBusy(true);
     try {
       const params = new URLSearchParams();
-      if (tourDate) params.set("date", tourDate);
+      if (tourCycleDateRef) params.set("date", tourCycleDateRef);
       params.set("limit", "500");
 
       const res = await apiFetch<TourRow[]>(`/supervisor/tours?${params.toString()}`, { method: "GET" });
       if (!res.ok) {
-        setMessage({ type: "error", text: res.error });
+        if (res.status !== 409) setMessage({ type: "error", text: res.error });
+        setTours([]);
         return;
       }
       setTours(res.data);
@@ -377,8 +432,12 @@ export default function SupervisorDashboardPage() {
 
   async function generateTours() {
     setMessage(null);
-    if (!tourDate) {
-      setMessage({ type: "error", text: "Date requise." });
+    if (!activeCycle) {
+      setMessage({ type: "error", text: "Aucun cycle ouvert. L'administrateur doit d'abord ouvrir un cycle." });
+      return;
+    }
+    if (!tourCycle) {
+      setMessage({ type: "error", text: "Cycle requis." });
       return;
     }
     if (!tourZoneKey) {
@@ -422,7 +481,7 @@ export default function SupervisorDashboardPage() {
     setToursBusy(true);
     try {
       const body: Record<string, unknown> = {
-        date: tourDate,
+        date: tourCycleDateRef,
         mode: tourMode,
         center,
         zone,
@@ -445,7 +504,12 @@ export default function SupervisorDashboardPage() {
       });
 
       if (!res.ok) {
-        setMessage({ type: "error", text: res.error });
+        if (res.status === 409) {
+          setMessage({ type: "error", text: "Aucun cycle ouvert. L'administrateur doit d'abord ouvrir un cycle." });
+          setActiveCycle(null);
+        } else {
+          setMessage({ type: "error", text: res.error });
+        }
         return;
       }
 
@@ -669,6 +733,33 @@ export default function SupervisorDashboardPage() {
                             Actualiser
                           </button>
                         </div>
+
+                        <div className={`mt-4 rounded-2xl border px-4 py-3 text-sm ${
+                          activeCycleBusy
+                            ? "border-zinc-200 bg-zinc-50 text-zinc-500 dark:border-white/10 dark:bg-white/5 dark:text-zinc-400"
+                            : activeCycle
+                            ? "border-emerald-200 bg-emerald-50 text-emerald-900 dark:border-emerald-500/20 dark:bg-emerald-500/10 dark:text-emerald-200"
+                            : "border-amber-200 bg-amber-50 text-amber-900 dark:border-amber-500/20 dark:bg-amber-500/10 dark:text-amber-200"
+                        }`}>
+                          {activeCycleBusy ? (
+                            "Vérification du cycle en cours…"
+                          ) : activeCycle ? (
+                            <>
+                              <span className="font-semibold">Cycle ouvert :</span>{" "}
+                              <span className="font-mono">{activeCycle.cycleId}</span>
+                              {activeCycle.openedAt ? (
+                                <span className="ml-2 text-xs opacity-70">
+                                  depuis le {new Date(activeCycle.openedAt).toLocaleDateString("fr-FR")}
+                                </span>
+                              ) : null}
+                            </>
+                          ) : (
+                            <>
+                              <span className="font-semibold">Aucun cycle ouvert.</span>{" "}
+                              L'administrateur doit ouvrir un cycle pour permettre la génération de tournées et la saisie de relevés.
+                            </>
+                          )}
+                        </div>
                       </div>
 
                       <div className="grid gap-4 sm:grid-cols-2">
@@ -828,20 +919,31 @@ export default function SupervisorDashboardPage() {
 
                 {tab === "tours" ? (
                   <div className="space-y-6">
+                    {activeCycle ? (
+                      <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900 dark:border-emerald-500/20 dark:bg-emerald-500/10 dark:text-emerald-200">
+                        <span className="font-semibold">Cycle ouvert :</span>{" "}
+                        <span className="font-mono">{activeCycle.cycleId}</span>
+                      </div>
+                    ) : (
+                      <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-500/20 dark:bg-amber-500/10 dark:text-amber-200">
+                        <span className="font-semibold">Aucun cycle ouvert.</span>{" "}
+                        La génération de tournées est désactivée. Contactez l'administrateur.
+                      </div>
+                    )}
                     <section className={`${cardClassName} p-6`}>
                       <div className="flex flex-wrap items-center justify-between gap-3">
                         <div>
                           <h2 className="text-lg font-semibold">Générer des tournées</h2>
                           <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-300">
-                            Mode A: 1 tournée par zone/jour (1 agent). Mode B2: découpage par taille + répartition sur plusieurs agents.
+                            Génération par cycle mensuel. Mode A: 1 tournée par zone. Mode B2: découpage par taille + répartition sur plusieurs agents.
                           </p>
                         </div>
                         <button
                           type="button"
                           className={secondaryButtonClassName}
                           onClick={async () => {
-                            const qs = tourDate ? `?date=${encodeURIComponent(tourDate)}` : "";
-                            const r = await downloadPdf(`/supervisor/tours/report.pdf${qs}`, `tours_${tourDate || "all"}.pdf`);
+                            const qs = tourCycleDateRef ? `?date=${encodeURIComponent(tourCycleDateRef)}` : "";
+                            const r = await downloadPdf(`/supervisor/tours/report.pdf${qs}`, `tours_${tourCycle || "cycle"}.pdf`);
                             if (!r.ok) setMessage({ type: "error", text: r.error });
                           }}
                         >
@@ -850,15 +952,38 @@ export default function SupervisorDashboardPage() {
                       </div>
 
                       <div className="mt-5 grid gap-4 sm:grid-cols-2">
-                      <div className="space-y-2">
-                        <label className="text-sm font-medium">Date *</label>
-                        <input className={inputClassName} type="date" value={tourDate} onChange={(e) => setTourDate(e.target.value)} />
+                      <div className="space-y-2 sm:col-span-2">
+                        <label className="text-sm font-medium">Cycle (mois/année) *</label>
+                        <div className="grid gap-3 sm:grid-cols-2">
+                          <select
+                            className={inputClassName}
+                            value={selectedTourMonth}
+                            onChange={(e) => setTourCycle(`${selectedTourYear}-${e.target.value}`)}
+                          >
+                            {cycleMonthOptions.map((monthOption) => (
+                              <option key={monthOption.value} value={monthOption.value}>
+                                {monthOption.label}
+                              </option>
+                            ))}
+                          </select>
+                          <select
+                            className={inputClassName}
+                            value={selectedTourYear}
+                            onChange={(e) => setTourCycle(`${e.target.value}-${selectedTourMonth}`)}
+                          >
+                            {cycleYearOptions.map((yearOption) => (
+                              <option key={yearOption} value={yearOption}>
+                                {yearOption}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
                       </div>
 
                       <div className="space-y-2">
                         <label className="text-sm font-medium">Mode *</label>
                         <select className={inputClassName} value={tourMode} onChange={(e) => setTourMode(e.target.value as "A" | "B2" | "MANUAL")}>
-                          <option value="A">A — 1 tournée / zone / jour</option>
+                          <option value="A">A — 1 tournée / zone / cycle</option>
                           <option value="B2">B2 — Découpage (maxMetersPerTour)</option>
                           <option value="MANUAL">MANUAL — Affectation par agent (nombre exact)</option>
                         </select>
@@ -1048,11 +1173,16 @@ export default function SupervisorDashboardPage() {
                       )}
 
                       <div className="sm:col-span-2">
+                        {!activeCycle ? (
+                          <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-500/20 dark:bg-amber-500/10 dark:text-amber-200">
+                            Aucun cycle ouvert — la génération de tournées est désactivée. Contactez l'administrateur.
+                          </div>
+                        ) : null}
                         <button
                           type="button"
                           onClick={() => void generateTours()}
-                          disabled={toursBusy || assignedZones.length === 0}
-                          className={`w-full ${primaryButtonClassName}`}
+                          disabled={toursBusy || assignedZones.length === 0 || !activeCycle}
+                          className={`mt-3 w-full ${primaryButtonClassName}`}
                         >
                           {toursBusy ? "Génération…" : "Générer"}
                         </button>
