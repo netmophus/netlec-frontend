@@ -587,38 +587,32 @@ export default function CustomerDashboardPage() {
   }, [selfReadingDate]);
 
   return (
-    <div className="relative min-h-screen overflow-hidden bg-zinc-50 text-zinc-900 dark:bg-black dark:text-zinc-50">
-      <div className="pointer-events-none absolute inset-0">
-        <div className="absolute -top-24 left-1/2 h-[520px] w-[520px] -translate-x-1/2 rounded-full bg-gradient-to-tr from-indigo-400/35 via-sky-400/25 to-emerald-400/25 blur-3xl dark:from-indigo-500/20 dark:via-sky-500/15 dark:to-emerald-500/15" />
-        <div className="absolute -bottom-40 right-[-120px] h-[520px] w-[520px] rounded-full bg-gradient-to-tr from-fuchsia-400/25 via-rose-400/20 to-amber-300/15 blur-3xl dark:from-fuchsia-500/15 dark:via-rose-500/10 dark:to-amber-400/10" />
-      </div>
+    <div className="min-h-screen bg-zinc-50 text-zinc-900 dark:bg-zinc-950 dark:text-zinc-50">
 
-      <header className="relative z-10 mx-auto flex w-full max-w-6xl items-center justify-between px-6 py-6">
-        <a href="/" className="flex items-center gap-2">
-          <span className="inline-flex h-9 w-9 items-center justify-center rounded-xl bg-zinc-900 text-zinc-50 dark:bg-zinc-50 dark:text-zinc-900">
-            N
-          </span>
-          <div>
-            <div className="text-sm font-semibold tracking-wide">NIGELEC</div>
-            <div className="text-xs text-zinc-500 dark:text-zinc-400">Espace Client</div>
-          </div>
-        </a>
-
-        <nav className="flex items-center gap-2">
-          <button
-            type="button"
-            className="rounded-xl bg-zinc-900 px-4 py-2 text-sm font-semibold text-zinc-50 transition hover:bg-zinc-800 dark:bg-zinc-50 dark:text-zinc-900 dark:hover:bg-zinc-200"
-            onClick={() => {
-              localStorage.removeItem("nigelec_access_token");
-              window.location.href = "/";
-            }}
-          >
-            Logout
-          </button>
-        </nav>
+      <header className="sticky top-0 z-50 w-full border-b border-zinc-900/8 bg-white/80 backdrop-blur-md dark:border-white/8 dark:bg-zinc-950/80">
+        <div className="mx-auto flex w-full max-w-6xl items-center justify-between gap-4 px-6 py-4">
+          <a href="/" className="flex items-center gap-3">
+            <img src="/nigelec-logo.svg" alt="NIGELEC" className="h-8 w-auto" />
+            <span className="hidden rounded-full border border-zinc-200 bg-zinc-50 px-2.5 py-0.5 text-[11px] font-semibold tracking-wide text-zinc-600 sm:inline-flex dark:border-white/10 dark:bg-white/5 dark:text-zinc-300">
+              Espace Client
+            </span>
+          </a>
+          <nav className="flex items-center gap-2">
+            <button
+              type="button"
+              className="rounded-xl border border-zinc-200 bg-white px-3.5 py-2 text-sm font-semibold text-zinc-700 shadow-xs transition hover:border-zinc-300 hover:bg-zinc-50 dark:border-white/10 dark:bg-white/5 dark:text-zinc-200 dark:hover:bg-white/10"
+              onClick={() => {
+                localStorage.removeItem("nigelec_access_token");
+                window.location.href = "/";
+              }}
+            >
+              Déconnexion
+            </button>
+          </nav>
+        </div>
       </header>
 
-      <main className="relative z-10 mx-auto w-full max-w-6xl px-6 pb-16 pt-4">
+      <main className="mx-auto w-full max-w-6xl px-6 pb-16 pt-6">
         {!mounted ? (
           <div className="rounded-3xl border border-zinc-200 bg-white/80 p-6 shadow-sm backdrop-blur dark:border-white/10 dark:bg-white/5">
             <h1 className="text-xl font-semibold">Chargement…</h1>

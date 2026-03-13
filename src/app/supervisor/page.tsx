@@ -198,16 +198,16 @@ async function apiFetch<T>(path: string, options: RequestInit = {}): Promise<Api
 
 export default function SupervisorDashboardPage() {
   const inputClassName =
-    "h-12 w-full rounded-md border border-zinc-200 bg-white/70 px-5 text-base shadow-sm outline-none transition placeholder:text-zinc-400 focus:border-zinc-400 focus:ring-4 focus:ring-zinc-900/5 dark:border-white/10 dark:bg-white/5 dark:placeholder:text-zinc-500 dark:focus:border-white/20 dark:focus:ring-white/10";
+    "h-11 w-full rounded-xl border border-zinc-200 bg-white px-4 text-sm shadow-xs outline-none transition placeholder:text-zinc-400 focus:border-red-400 focus:ring-4 focus:ring-red-600/10 dark:border-white/10 dark:bg-white/5 dark:placeholder:text-zinc-500 dark:focus:border-red-500/50 dark:focus:ring-red-500/10";
 
   const cardClassName =
-    "rounded-3xl border border-zinc-200 bg-white/70 shadow-sm backdrop-blur dark:border-white/10 dark:bg-white/5";
+    "rounded-2xl border border-zinc-200/80 bg-white shadow-sm dark:border-white/8 dark:bg-zinc-900/60";
 
   const primaryButtonClassName =
-    "inline-flex h-11 items-center justify-center rounded-2xl bg-red-600 px-4 text-sm font-semibold text-white shadow-sm transition hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-70";
+    "inline-flex h-10 items-center justify-center rounded-xl bg-red-600 px-4 text-sm font-semibold text-white shadow-xs transition hover:bg-red-700 active:bg-red-800 disabled:cursor-not-allowed disabled:opacity-60";
 
   const secondaryButtonClassName =
-    "inline-flex h-11 items-center justify-center rounded-2xl border border-zinc-200 bg-white/60 px-4 text-sm font-semibold text-zinc-900 shadow-sm transition hover:bg-white disabled:cursor-not-allowed disabled:opacity-70 dark:border-white/10 dark:bg-white/5 dark:text-white dark:hover:bg-white/10";
+    "inline-flex h-10 items-center justify-center rounded-xl border border-zinc-200 bg-white px-4 text-sm font-semibold text-zinc-800 shadow-xs transition hover:bg-zinc-50 hover:border-zinc-300 disabled:cursor-not-allowed disabled:opacity-60 dark:border-white/10 dark:bg-white/5 dark:text-zinc-200 dark:hover:bg-white/10";
 
   const [mounted, setMounted] = useState(false);
   const [token, setToken] = useState<string | null>(null);
@@ -634,40 +634,39 @@ export default function SupervisorDashboardPage() {
       <button
         type="button"
         onClick={() => setTab(key)}
-        className={`flex w-full items-center justify-between rounded-2xl px-4 py-3 text-left text-sm font-semibold transition ${
+        className={`flex w-full items-center gap-3 rounded-xl px-3.5 py-2.5 text-left text-sm font-semibold transition ${
           active
-            ? "bg-red-600 text-white shadow-sm"
-            : "text-zinc-700 hover:bg-red-600/10 hover:text-zinc-900 dark:text-zinc-200 dark:hover:bg-white/10 dark:hover:text-white"
+            ? "bg-red-600/10 text-red-700 dark:bg-red-500/15 dark:text-red-400"
+            : "text-zinc-600 hover:bg-zinc-900/5 hover:text-zinc-900 dark:text-zinc-300 dark:hover:bg-white/8 dark:hover:text-white"
         }`}
       >
+        <span
+          className={`h-1.5 w-1.5 shrink-0 rounded-full transition ${
+            active ? "bg-red-600 dark:bg-red-400" : "bg-zinc-300 dark:bg-zinc-600"
+          }`}
+        />
         <span>
-          <span>{label}</span>
-          {sub ? <span className={`ml-2 text-xs ${active ? "text-white/80" : "text-zinc-400 dark:text-zinc-500"}`}>{sub}</span> : null}
+          {label}
+          {sub ? <span className={`ml-2 text-xs font-medium ${active ? "text-red-500 dark:text-red-400" : "text-zinc-400 dark:text-zinc-500"}`}>{sub}</span> : null}
         </span>
-        <span className={`text-xs font-bold ${active ? "text-white/80" : "text-zinc-400 dark:text-zinc-500"}`}>↵</span>
       </button>
     );
   };
 
   return (
-    <div className="relative min-h-screen overflow-hidden bg-zinc-50 text-zinc-900 dark:bg-black dark:text-zinc-50">
-      <div className="pointer-events-none absolute inset-0">
-        <div className="absolute -top-32 left-1/2 h-[560px] w-[560px] -translate-x-1/2 rounded-full bg-gradient-to-tr from-red-500/20 via-zinc-900/10 to-zinc-500/10 blur-3xl dark:from-red-500/15 dark:via-white/5 dark:to-zinc-500/10" />
-        <div className="absolute -bottom-44 right-[-140px] h-[560px] w-[560px] rounded-full bg-gradient-to-tr from-zinc-900/10 via-red-500/15 to-zinc-500/10 blur-3xl dark:from-white/5 dark:via-red-500/15 dark:to-zinc-500/10" />
-      </div>
-
-      <main className="relative z-10 mx-auto w-full max-w-7xl px-4 pb-16 pt-6 sm:px-6">
-        <div className="grid gap-6 lg:grid-cols-[280px_1fr]">
-          <aside className={`${cardClassName} p-5`}>
-            <div className="flex items-center gap-3">
-              <img src={logoUrl} alt="NIGELEC" className="h-9 w-auto" />
+    <div className="min-h-screen bg-zinc-50 text-zinc-900 dark:bg-zinc-950 dark:text-zinc-50">
+      <main className="mx-auto w-full max-w-7xl px-4 pb-16 pt-6 sm:px-6">
+        <div className="grid gap-6 lg:grid-cols-[260px_1fr]">
+          <aside className={`self-start lg:sticky lg:top-20 ${cardClassName} p-4`}>
+            <div className="flex items-center gap-3 px-1">
+              <img src={logoUrl} alt="NIGELEC" className="h-8 w-auto" />
               <div>
                 <div className="text-sm font-semibold tracking-wide">Superviseur</div>
                 <div className="text-xs text-zinc-500 dark:text-zinc-400">NIGELEC</div>
               </div>
             </div>
 
-            <div className="mt-6 space-y-2">
+            <div className="mt-5 space-y-0.5">
               {navItem("overview", "Vue d’ensemble")}
               {navItem("agents", "Agents", `${agents.length}`)}
               {navItem("tours", "Tournées", `${tours.length}`)}
@@ -676,9 +675,9 @@ export default function SupervisorDashboardPage() {
               {navItem("meters", "Compteurs", `${meters.length}`)}
             </div>
 
-            <div className="mt-6 h-px bg-zinc-200/70 dark:bg-white/10" />
+            <div className="mt-4 h-px bg-zinc-200/80 dark:bg-white/8" />
 
-            <div className="mt-6 grid gap-2">
+            <div className="mt-4 grid gap-2">
               <a href="/" className={secondaryButtonClassName}>
                 Accueil
               </a>
@@ -708,7 +707,7 @@ export default function SupervisorDashboardPage() {
               <div className="space-y-6">
                 {message ? (
                   <div
-                    className={`rounded-3xl border p-4 text-sm shadow-sm ${
+                    className={`rounded-xl border p-4 text-sm shadow-xs ${
                       message.type === "ok"
                         ? "border-emerald-200 bg-emerald-50 text-emerald-900 dark:border-emerald-500/20 dark:bg-emerald-500/10 dark:text-emerald-200"
                         : "border-rose-200 bg-rose-50 text-rose-900 dark:border-rose-500/20 dark:bg-rose-500/10 dark:text-rose-200"

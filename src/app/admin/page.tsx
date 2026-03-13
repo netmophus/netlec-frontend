@@ -352,27 +352,27 @@ type TabKey = "overview" | "cycles" | "users" | "clients" | "meters" | "customer
 
 export default function AdminDashboardPage() {
   const inputClassName =
-    "h-12 w-full rounded-md border border-zinc-200 bg-white/70 px-5 text-base shadow-sm outline-none transition placeholder:text-zinc-400 focus:border-zinc-400 focus:ring-4 focus:ring-zinc-900/5 dark:border-white/10 dark:bg-white/5 dark:placeholder:text-zinc-500 dark:focus:border-white/20 dark:focus:ring-white/10";
+    "h-11 w-full rounded-xl border border-zinc-200 bg-white px-4 text-sm shadow-xs outline-none transition placeholder:text-zinc-400 focus:border-red-400 focus:ring-4 focus:ring-red-600/10 dark:border-white/10 dark:bg-white/5 dark:placeholder:text-zinc-500 dark:focus:border-red-500/50 dark:focus:ring-red-500/10";
 
   const cardClassName =
-    "rounded-3xl border border-zinc-200 bg-white/80 p-6 shadow-sm backdrop-blur dark:border-white/10 dark:bg-white/5";
+    "rounded-2xl border border-zinc-200/80 bg-white p-6 shadow-sm dark:border-white/8 dark:bg-zinc-900/60";
   const cardTintRedClassName =
-    "rounded-3xl border border-red-100 bg-red-50/60 p-6 shadow-sm backdrop-blur dark:border-red-500/20 dark:bg-red-500/10";
+    "rounded-2xl border border-red-200/70 bg-red-50/80 p-6 shadow-sm dark:border-red-500/20 dark:bg-red-500/8";
   const cardTintZincClassName =
-    "rounded-3xl border border-zinc-200 bg-zinc-50/70 p-6 shadow-sm backdrop-blur dark:border-white/10 dark:bg-white/5";
+    "rounded-2xl border border-zinc-200/80 bg-zinc-50/80 p-6 shadow-sm dark:border-white/8 dark:bg-zinc-900/40";
   const cardSoftClassName =
-    "rounded-2xl border border-zinc-200 bg-white/60 p-4 shadow-sm backdrop-blur dark:border-white/10 dark:bg-white/5";
+    "rounded-xl border border-zinc-200/80 bg-zinc-50/70 p-4 dark:border-white/8 dark:bg-zinc-900/40";
   const tableCardClassName =
-    "overflow-hidden rounded-2xl border border-zinc-200 bg-white/70 shadow-sm dark:border-white/10 dark:bg-black/30";
+    "overflow-hidden rounded-xl border border-zinc-200/80 bg-white shadow-sm dark:border-white/8 dark:bg-zinc-900/60";
 
   const primaryButtonClassName =
-    "inline-flex items-center justify-center rounded-md bg-red-600 px-5 text-base font-semibold text-white shadow-sm transition hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-70";
+    "inline-flex items-center justify-center rounded-xl bg-red-600 px-5 text-sm font-semibold text-white shadow-xs transition hover:bg-red-700 active:bg-red-800 disabled:cursor-not-allowed disabled:opacity-60";
   const primaryButtonSmClassName =
-    "inline-flex items-center justify-center rounded-md bg-red-600 px-4 text-sm font-semibold text-white shadow-sm transition hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-70";
+    "inline-flex items-center justify-center rounded-lg bg-red-600 px-4 text-sm font-semibold text-white shadow-xs transition hover:bg-red-700 active:bg-red-800 disabled:cursor-not-allowed disabled:opacity-60";
   const secondaryButtonClassName =
-    "inline-flex items-center justify-center rounded-md border border-zinc-200 bg-white/70 px-5 text-base font-semibold text-zinc-900 shadow-sm backdrop-blur transition hover:bg-white disabled:cursor-not-allowed disabled:opacity-70 dark:border-white/10 dark:bg-white/5 dark:text-white dark:hover:bg-white/10";
+    "inline-flex items-center justify-center rounded-xl border border-zinc-200 bg-white px-5 text-sm font-semibold text-zinc-800 shadow-xs transition hover:bg-zinc-50 hover:border-zinc-300 disabled:cursor-not-allowed disabled:opacity-60 dark:border-white/10 dark:bg-white/5 dark:text-zinc-200 dark:hover:bg-white/10";
   const secondaryButtonSmClassName =
-    "inline-flex items-center justify-center rounded-md border border-zinc-200 bg-white/70 px-4 text-sm font-semibold text-zinc-900 shadow-sm backdrop-blur transition hover:bg-white disabled:cursor-not-allowed disabled:opacity-70 dark:border-white/10 dark:bg-white/5 dark:text-white dark:hover:bg-white/10";
+    "inline-flex items-center justify-center rounded-lg border border-zinc-200 bg-white px-4 text-sm font-semibold text-zinc-800 shadow-xs transition hover:bg-zinc-50 hover:border-zinc-300 disabled:cursor-not-allowed disabled:opacity-60 dark:border-white/10 dark:bg-white/5 dark:text-zinc-200 dark:hover:bg-white/10";
 
   const sectionHeader = (title: string, subtitle: string, right?: ReactNode) => (
     <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-start">
@@ -793,10 +793,10 @@ export default function AdminDashboardPage() {
       <button
         type="button"
         onClick={() => setTab(key)}
-        className={`inline-flex h-10 items-center justify-center rounded-xl px-4 text-sm font-semibold transition ${
+        className={`inline-flex h-9 items-center justify-center rounded-lg px-3.5 text-sm font-semibold transition ${
           active
-            ? "bg-red-600 text-white shadow-sm"
-            : "text-zinc-700 hover:bg-red-600/10 hover:text-zinc-900 dark:text-zinc-200 dark:hover:bg-white/10 dark:hover:text-white"
+            ? "bg-red-600 text-white shadow-xs"
+            : "text-zinc-600 hover:bg-zinc-900/6 hover:text-zinc-900 dark:text-zinc-300 dark:hover:bg-white/8 dark:hover:text-white"
         }`}
       >
         {label}
@@ -808,10 +808,10 @@ export default function AdminDashboardPage() {
     <button
       type="button"
       onClick={onClick}
-      className={`inline-flex h-10 items-center justify-center rounded-xl px-4 text-sm font-semibold transition ${
+      className={`inline-flex h-9 items-center justify-center rounded-lg px-3.5 text-sm font-semibold transition ${
         active
-          ? "bg-zinc-900 text-white shadow-sm dark:bg-white dark:text-zinc-900"
-          : "text-zinc-700 hover:bg-zinc-900/5 hover:text-zinc-900 dark:text-zinc-200 dark:hover:bg-white/10 dark:hover:text-white"
+          ? "bg-zinc-900 text-white shadow-xs dark:bg-white dark:text-zinc-900"
+          : "text-zinc-600 hover:bg-zinc-900/6 hover:text-zinc-900 dark:text-zinc-300 dark:hover:bg-white/8 dark:hover:text-white"
       }`}
     >
       {label}
@@ -1564,37 +1564,36 @@ export default function AdminDashboardPage() {
           if (key === "customers") setCustomersSubTab("zones");
           if (key === "ops") setOpsSubTab("readings");
         }}
-        className={`flex w-full items-center justify-between rounded-2xl px-4 py-3 text-left text-sm font-semibold transition ${
+        className={`flex w-full items-center gap-3 rounded-xl px-3.5 py-2.5 text-left text-sm font-semibold transition ${
           active
-            ? "bg-red-600 text-white shadow-sm"
-            : "text-zinc-700 hover:bg-red-600/10 hover:text-zinc-900 dark:text-zinc-200 dark:hover:bg-white/10 dark:hover:text-white"
+            ? "bg-red-600/10 text-red-700 dark:bg-red-500/15 dark:text-red-400"
+            : "text-zinc-600 hover:bg-zinc-900/5 hover:text-zinc-900 dark:text-zinc-300 dark:hover:bg-white/8 dark:hover:text-white"
         }`}
       >
-        <span>{label}</span>
-        <span className={`text-xs font-bold ${active ? "text-white/80" : "text-zinc-400 dark:text-zinc-500"}`}>↵</span>
+        <span
+          className={`h-1.5 w-1.5 shrink-0 rounded-full transition ${
+            active ? "bg-red-600 dark:bg-red-400" : "bg-zinc-300 dark:bg-zinc-600"
+          }`}
+        />
+        {label}
       </button>
     );
   };
 
   return (
-    <div className="relative min-h-screen overflow-hidden bg-zinc-50 text-zinc-900 dark:bg-black dark:text-zinc-50">
-      <div className="pointer-events-none absolute inset-0">
-        <div className="absolute -top-32 left-1/2 h-[560px] w-[560px] -translate-x-1/2 rounded-full bg-gradient-to-tr from-red-500/20 via-zinc-900/10 to-zinc-500/10 blur-3xl dark:from-red-500/15 dark:via-white/5 dark:to-zinc-500/10" />
-        <div className="absolute -bottom-44 right-[-140px] h-[560px] w-[560px] rounded-full bg-gradient-to-tr from-zinc-900/10 via-red-500/15 to-zinc-500/10 blur-3xl dark:from-white/5 dark:via-red-500/15 dark:to-zinc-500/10" />
-      </div>
-
-      <main className="relative z-10 mx-auto w-full max-w-7xl px-4 pb-16 pt-6 sm:px-6">
-        <div className="grid gap-6 lg:grid-cols-[280px_1fr]">
-          <aside className="rounded-3xl border border-zinc-200 bg-white/70 p-5 shadow-sm backdrop-blur dark:border-white/10 dark:bg-white/5">
-            <div className="flex items-center gap-3">
-              <img src={portalSettings.logoUrl || "/nigelec-logo.svg"} alt="NIGELEC" className="h-9 w-auto" />
+    <div className="min-h-screen bg-zinc-50 text-zinc-900 dark:bg-zinc-950 dark:text-zinc-50">
+      <main className="mx-auto w-full max-w-7xl px-4 pb-16 pt-6 sm:px-6">
+        <div className="grid gap-6 lg:grid-cols-[260px_1fr]">
+          <aside className="self-start lg:sticky lg:top-20 rounded-2xl border border-zinc-200/80 bg-white p-4 shadow-sm dark:border-white/8 dark:bg-zinc-900/60">
+            <div className="flex items-center gap-3 px-1">
+              <img src={portalSettings.logoUrl || "/nigelec-logo.svg"} alt="NIGELEC" className="h-8 w-auto" />
               <div>
-                <div className="text-sm font-semibold tracking-wide">Admin</div>
+                <div className="text-sm font-semibold tracking-wide">Administration</div>
                 <div className="text-xs text-zinc-500 dark:text-zinc-400">NIGELEC</div>
               </div>
             </div>
 
-            <div className="mt-6 space-y-2">
+            <div className="mt-5 space-y-0.5">
               {navItem("overview", "Vue d’ensemble")}
               {navItem("cycles", "Cycles")}
               {navItem("users", "Utilisateurs")}
@@ -1605,18 +1604,18 @@ export default function AdminDashboardPage() {
               {navItem("settings", "Paramétrage")}
             </div>
 
-            <div className="mt-6 h-px bg-zinc-200/70 dark:bg-white/10" />
+            <div className="mt-4 h-px bg-zinc-200/80 dark:bg-white/8" />
 
-            <div className="mt-6 grid gap-2">
+            <div className="mt-4 grid gap-2">
               <a
                 href="/"
-                className="inline-flex h-11 items-center justify-center rounded-2xl border border-zinc-200 bg-white/60 px-4 text-sm font-semibold text-zinc-900 shadow-sm transition hover:bg-white dark:border-white/10 dark:bg-white/5 dark:text-white dark:hover:bg-white/10"
+                className="inline-flex h-10 items-center justify-center rounded-xl border border-zinc-200 bg-zinc-50 px-4 text-sm font-semibold text-zinc-700 shadow-xs transition hover:bg-zinc-100 dark:border-white/10 dark:bg-white/5 dark:text-zinc-200 dark:hover:bg-white/10"
               >
                 Accueil
               </a>
               <a
                 href="/login"
-                className="inline-flex h-11 items-center justify-center rounded-2xl bg-red-600 px-4 text-sm font-semibold text-white shadow-sm transition hover:bg-red-700"
+                className="inline-flex h-10 items-center justify-center rounded-xl bg-red-600 px-4 text-sm font-semibold text-white shadow-xs transition hover:bg-red-700"
                 onClick={() => localStorage.removeItem("nigelec_access_token")}
               >
                 Déconnexion
@@ -1721,7 +1720,7 @@ export default function AdminDashboardPage() {
 
                 {message ? (
                   <div
-                    className={`rounded-3xl border p-4 text-sm shadow-sm ${
+                    className={`rounded-xl border p-4 text-sm shadow-xs ${
                       message.type === "ok"
                         ? "border-emerald-200 bg-emerald-50 text-emerald-900 dark:border-emerald-500/20 dark:bg-emerald-500/10 dark:text-emerald-200"
                         : "border-rose-200 bg-rose-50 text-rose-900 dark:border-rose-500/20 dark:bg-rose-500/10 dark:text-rose-200"
